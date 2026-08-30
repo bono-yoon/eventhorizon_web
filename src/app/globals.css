@@ -1,0 +1,416 @@
+@import "tailwindcss";
+
+/* ── 공통 (폰트 등) ── */
+:root {
+  --font-display: var(--font-outfit), "Segoe UI", sans-serif;
+  --font-body: var(--font-ibm), "Malgun Gothic", "Segoe UI", sans-serif;
+}
+
+/* ── 다크 모드 (기본) — 기존 배경/뉴모 ── */
+[data-theme="dark"] {
+  --eh-ink: #1a1e26;
+  --eh-surface: #1a1e26;
+  --eh-surface-2: #222730;
+  --eh-mist: #e8edf4;
+  --eh-fog: #8b95a8;
+  --eh-signal: #94c4a8;
+  --eh-signal-muted: #6fa888;
+  --eh-signal-rgb: 148, 196, 168;
+  --eh-signal-soft: rgba(var(--eh-signal-rgb), 0.35);
+  --eh-signal-glow: rgba(var(--eh-signal-rgb), 0.045);
+  --eh-signal-glow-sm: rgba(var(--eh-signal-rgb), 0.03);
+  --eh-signal-strong: rgba(var(--eh-signal-rgb), 0.95);
+  --eh-alert: #f87171;
+  --eh-ok: #34d399;
+  --eh-warn: #fbbf24;
+  --eh-panel: #1a1e26;
+  --eh-line: rgba(255, 255, 255, 0.03);
+  --eh-shadow-dark: rgba(8, 10, 14, 0.38);
+  --eh-shadow-light: rgba(255, 255, 255, 0.028);
+  --eh-neu-inset:
+    inset 5px 5px 12px rgba(8, 10, 14, 0.42),
+    inset -4px -4px 10px rgba(255, 255, 255, 0.025);
+  --eh-rim:
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.1) 0%,
+      rgba(255, 255, 255, 0.035) 28%,
+      rgba(255, 255, 255, 0.012) 55%,
+      rgba(0, 0, 0, 0.22) 100%
+    );
+  --eh-rim-sm:
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.08) 0%,
+      rgba(255, 255, 255, 0.02) 45%,
+      rgba(0, 0, 0, 0.18) 100%
+    );
+  --eh-header-shadow:
+    0 18px 36px rgba(8, 10, 14, 0.35),
+    0 1px 0 rgba(255, 255, 255, 0.02);
+  --eh-scroll-thumb: rgba(139, 149, 168, 0.28);
+  --eh-scroll-thumb-hover: rgba(139, 149, 168, 0.5);
+  --eh-gauge-thumb: #d8dee8;
+}
+
+/* ── 라이트 모드 ── */
+[data-theme="light"] {
+  --eh-ink: #e8ecf0;
+  --eh-surface: #e8ecf0;
+  --eh-surface-2: #dfe4ea;
+  --eh-mist: #1a2332;
+  --eh-fog: #64748b;
+  --eh-signal: #2d6a4f;
+  --eh-signal-muted: #245a42;
+  --eh-signal-rgb: 45, 106, 79;
+  --eh-signal-soft: rgba(var(--eh-signal-rgb), 0.35);
+  --eh-signal-glow: rgba(var(--eh-signal-rgb), 0.06);
+  --eh-signal-glow-sm: rgba(var(--eh-signal-rgb), 0.04);
+  --eh-signal-strong: rgba(var(--eh-signal-rgb), 0.95);
+  --eh-alert: #dc2626;
+  --eh-ok: #059669;
+  --eh-warn: #d97706;
+  --eh-panel: #e8ecf0;
+  --eh-line: rgba(0, 0, 0, 0.06);
+  --eh-shadow-dark: rgba(163, 177, 198, 0.48);
+  --eh-shadow-light: rgba(255, 255, 255, 0.92);
+  --eh-neu-inset:
+    inset 5px 5px 12px rgba(163, 177, 198, 0.42),
+    inset -4px -4px 10px rgba(255, 255, 255, 0.88);
+  --eh-rim:
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.95) 0%,
+      rgba(255, 255, 255, 0.35) 35%,
+      rgba(163, 177, 198, 0.12) 100%
+    );
+  --eh-rim-sm:
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.85) 0%,
+      rgba(255, 255, 255, 0.25) 45%,
+      rgba(163, 177, 198, 0.1) 100%
+    );
+  --eh-header-shadow:
+    0 12px 28px rgba(163, 177, 198, 0.35),
+    0 1px 0 rgba(255, 255, 255, 0.6);
+  --eh-scroll-thumb: rgba(100, 116, 139, 0.28);
+  --eh-scroll-thumb-hover: rgba(100, 116, 139, 0.45);
+  --eh-gauge-thumb: #f4f7fa;
+}
+
+/* 뉴모 그림자 — 테마 공통 구조 */
+[data-theme="dark"],
+[data-theme="light"] {
+  --eh-neu-raised:
+    10px 10px 24px var(--eh-shadow-dark),
+    -8px -8px 20px var(--eh-shadow-light);
+  --eh-neu-raised-sm:
+    6px 6px 14px var(--eh-shadow-dark),
+    -4px -4px 10px var(--eh-shadow-light);
+  --eh-neu-flat:
+    3px 3px 10px var(--eh-shadow-dark),
+    -2px -2px 8px var(--eh-shadow-light);
+}
+
+@theme inline {
+  --font-sans: var(--font-body);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  color: var(--eh-mist);
+  background: var(--eh-ink);
+  font-family: var(--font-body);
+}
+
+body {
+  /* 셸(eh-grid-bg)과 동일한 베이스 — 그라데이션만 아주 약하게 */
+  background:
+    radial-gradient(900px 480px at 12% -8%, var(--eh-signal-glow), transparent 55%),
+    radial-gradient(700px 420px at 100% 0%, rgba(248, 113, 113, 0.03), transparent 50%),
+    var(--eh-ink);
+  background-attachment: fixed;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.eh-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.04em;
+}
+
+/* Raised soft surface — 면은 배경과 동일, 경계는 얇은 그라데이션 rim
+   position:relative 는 :fixed 유틸을 덮어쓰므로, 고정 플로팅은 .eh-fixed 로 제외 */
+.eh-panel {
+  isolation: isolate;
+  background: var(--eh-panel);
+  border: none;
+  border-radius: 26px;
+  box-shadow: var(--eh-neu-raised);
+}
+
+.eh-panel:not(.eh-fixed):not(.eh-popover) {
+  position: relative;
+}
+
+.eh-panel.eh-fixed {
+  position: fixed;
+}
+
+.eh-panel.eh-popover {
+  position: absolute;
+}
+
+.eh-panel::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--eh-rim);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+
+.eh-neu-raised {
+  position: relative;
+  isolation: isolate;
+  background: var(--eh-surface);
+  border: none;
+  box-shadow: var(--eh-neu-raised);
+}
+
+.eh-neu-raised::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--eh-rim);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+
+.eh-neu-raised-sm {
+  position: relative;
+  isolation: isolate;
+  background: var(--eh-surface);
+  border: none;
+  box-shadow: var(--eh-neu-raised-sm);
+}
+
+.eh-neu-raised-sm::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--eh-rim-sm);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+
+.eh-neu-inset {
+  position: relative;
+  background: var(--eh-surface);
+  border: none;
+  box-shadow: var(--eh-neu-inset);
+}
+
+.eh-neu-press {
+  transition: box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.eh-neu-press:active:not(:disabled) {
+  box-shadow: var(--eh-neu-inset);
+  transform: translateY(1px);
+}
+
+.eh-neu-active {
+  background: var(--eh-surface);
+  box-shadow: var(--eh-neu-inset);
+}
+
+.eh-neu-active::before {
+  opacity: 0.35;
+}
+
+/* 포인트 컬러 포커스/링 — hex는 :root --eh-signal* 만 수정 */
+.eh-focus-signal:focus {
+  outline: none;
+  box-shadow: var(--eh-neu-inset), 0 0 0 1px var(--eh-signal-soft);
+}
+
+.eh-ring-signal {
+  outline: 1px solid var(--eh-signal-soft);
+  outline-offset: 0;
+}
+
+/* Soft thin scrollbar */
+.eh-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--eh-scroll-thumb) transparent;
+}
+
+.eh-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+
+.eh-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  margin-block: 6px;
+}
+
+.eh-scroll::-webkit-scrollbar-thumb {
+  background: var(--eh-scroll-thumb);
+  border-radius: 999px;
+}
+
+.eh-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--eh-scroll-thumb-hover);
+}
+
+/* Soft ambient page shell — 패널과 동일 fill */
+.eh-grid-bg {
+  background:
+    radial-gradient(800px 400px at 80% 100%, var(--eh-signal-glow-sm), transparent 60%),
+    var(--eh-ink);
+}
+
+/* 헤더도 동일 배경 + soft 음영만 (border-bottom 일자선 제거) */
+.eh-header {
+  background: var(--eh-ink);
+  border-bottom: none;
+  box-shadow: var(--eh-header-shadow);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0.55;
+  }
+}
+
+.animate-rise {
+  animation: rise 0.5s ease both;
+}
+
+.animate-rise-delay {
+  animation: rise 0.65s ease 0.1s both;
+}
+
+/* 현황 패널 스태거 — 과하지 않은 등장 */
+.eh-stagger > * {
+  animation: rise 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.eh-stagger > *:nth-child(1) {
+  animation-delay: 40ms;
+}
+.eh-stagger > *:nth-child(2) {
+  animation-delay: 100ms;
+}
+.eh-stagger > *:nth-child(3) {
+  animation-delay: 160ms;
+}
+.eh-stagger > *:nth-child(4) {
+  animation-delay: 220ms;
+}
+.eh-stagger > *:nth-child(5) {
+  animation-delay: 280ms;
+}
+.eh-stagger > *:nth-child(6) {
+  animation-delay: 320ms;
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+@keyframes site-pin-wave {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.9;
+  }
+  70% {
+    transform: scale(1.55);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.55);
+    opacity: 0;
+  }
+}
+
+.site-pin-wave {
+  animation: site-pin-wave 1.8s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise,
+  .animate-rise-delay,
+  .eh-stagger > *,
+  .pulse-dot,
+  .site-pin-wave,
+  .eh-neu-press {
+    animation: none;
+    transition: none;
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "name": "eventhorizon_web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack -p 3000",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "mqtt:sub": "node scripts/mqtt-subscribe.mjs",
+    "sql": "node scripts/run-sql.mjs"
+  },
+  "dependencies": {
+    "@gsap/react": "^2.1.2",
+    "bcryptjs": "^3.0.3",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.4.0",
+    "gsap": "^3.15.0",
+    "jose": "^6.2.8",
+    "lucide-react": "^1.30.0",
+    "mqtt": "^5.15.2",
+    "mysql2": "^3.23.2",
+    "next": "15.5.23",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "recharts": "^3.10.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.23",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
