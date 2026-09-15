@@ -15,7 +15,7 @@ import { Badge, Button } from "./ui";
 export type SimulationDevice = {
   deviceId: string;
   label: string;
-  thresholdAccel: number;
+  thresholdTiltDeg: number;
   thresholdTempC: number;
   thresholdBattery: number;
 };
@@ -24,7 +24,7 @@ type EventKind = "accel" | "battery" | "temp";
 type EventLevel = "warning" | "critical";
 
 const eventLabel: Record<EventKind, string> = {
-  accel: "센서 값",
+  accel: "기울기",
   battery: "배터리",
   temp: "온도",
 };
@@ -107,7 +107,7 @@ export function SimulateAlertForm({
   function normalPayload() {
     return {
       deviceId,
-      x: Math.max(0.1, selected.thresholdAccel * 0.3),
+      x: Math.max(0.1, selected.thresholdTiltDeg * 0.3),
       y: 0,
       z: 0,
       batteryPercent: Math.min(100, selected.thresholdBattery + 20),
@@ -119,7 +119,7 @@ export function SimulateAlertForm({
     const payload = normalPayload();
     if (kind === "accel") {
       payload.x =
-        selected.thresholdAccel *
+        selected.thresholdTiltDeg *
         (level === "critical"
           ? SENSOR_CRITICAL_MULTIPLIER + 0.1
           : (1 + SENSOR_CRITICAL_MULTIPLIER) / 2);
@@ -165,7 +165,7 @@ export function SimulateAlertForm({
   }
 
   const rows: Array<{ kind: EventKind; label: string }> = [
-    { kind: "accel", label: "센서 값" },
+    { kind: "accel", label: "기울기" },
     { kind: "battery", label: "배터리" },
     { kind: "temp", label: "온도" },
   ];
@@ -346,15 +346,15 @@ export function SimulateAlertForm({
               <div className="space-y-3 text-sm text-[var(--eh-mist)]">
                 <div className="eh-neu-inset rounded-2xl p-3">
                   <div className="mb-1 flex items-center gap-2 text-white">
-                    센서 값
+                    기울기
                     <Badge tone="neutral">accel</Badge>
                   </div>
                   <p className="text-xs leading-5 text-[var(--eh-fog)]">
-                    주의 ≥ {selected.thresholdAccel.toFixed(2)} · 경고 ≥{" "}
+                    주의 ≥ {selected.thresholdTiltDeg.toFixed(1)}° · 경고 ≥{" "}
                     {(
-                      selected.thresholdAccel * SENSOR_CRITICAL_MULTIPLIER
-                    ).toFixed(2)}{" "}
-                    (×{SENSOR_CRITICAL_MULTIPLIER})
+                      selected.thresholdTiltDeg * SENSOR_CRITICAL_MULTIPLIER
+                    ).toFixed(1)}
+                    ° (×{SENSOR_CRITICAL_MULTIPLIER})
                   </p>
                 </div>
                 <div className="eh-neu-inset rounded-2xl p-3">

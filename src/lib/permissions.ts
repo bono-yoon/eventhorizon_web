@@ -21,7 +21,18 @@ const ROLE_DEFAULTS: Record<GlobalRole, Permission[]> = {
     "view_sensors",
     "receive_alerts",
   ],
+  field_worker: [
+    "view_company_dashboard",
+    "view_site_dashboard",
+    "view_sensors",
+    "manage_sensor_deployment",
+    "receive_alerts",
+  ],
 };
+
+export function defaultPermissionsForRole(role: GlobalRole): Permission[] {
+  return [...ROLE_DEFAULTS[role]];
+}
 
 export function effectivePermissions(user: SessionUser): Permission[] {
   if (user.role === "admin") {
@@ -34,6 +45,10 @@ export function effectivePermissions(user: SessionUser): Permission[] {
     const set = new Set([...ROLE_DEFAULTS.site_manager, ...user.permissions]);
     return [...set];
   }
+  if (user.role === "field_worker") {
+    const set = new Set([...ROLE_DEFAULTS.field_worker, ...user.permissions]);
+    return [...set];
+  }
   return user.permissions.length
     ? user.permissions
     : [...ROLE_DEFAULTS.employee];
@@ -43,16 +58,29 @@ export function hasPermission(user: SessionUser, perm: Permission): boolean {
   return effectivePermissions(user).includes(perm);
 }
 
+/** 현장 개설·상태(일시중지/종료)·정보 수정. 서비스 본사 현장작업자는 불가. */
+export function canManageSites(user: SessionUser): boolean {
+  if (user.role === "field_worker") return false;
+  if (
+    user.role === "admin" ||
+    user.role === "company" ||
+    user.role === "site_manager"
+  ) {
+    return true;
+  }
+  return hasPermission(user, "manage_sites");
+}
+
 export function canAccessCompany(
   user: SessionUser,
   companyId: string
 ): boolean {
-  if (user.role === "admin") return true;
+  if (user.role === "admin" || user.role === "field_worker") return true;
   return user.companyId === companyId;
 }
 
 export function canAccessSite(user: SessionUser, site: Site): boolean {
-  if (user.role === "admin") return true;
+  if (user.role === "admin" || user.role === "field_worker") return true;
   if (user.companyId !== site.companyId) return false;
   if (user.role === "company") return true;
   return user.siteIds.includes(site.id);
@@ -92,12 +120,15 @@ export function roleLabel(role: GlobalRole): string {
       return "현장 소장";
     case "employee":
       return "직원";
+    case "field_worker":
+      return "본사 현장작업자";
   }
 }
 
 export const ALERT_ROLE_PRIORITY: Record<GlobalRole, number> = {
   site_manager: 1,
   employee: 2,
+  field_worker: 2,
   company: 3,
   admin: 4,
 };

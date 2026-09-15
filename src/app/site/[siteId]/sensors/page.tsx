@@ -1,5 +1,4 @@
 import { redirect, notFound } from "next/navigation";
-import { Suspense } from "react";
 import { getSession } from "@/lib/auth";
 import { readStore } from "@/lib/store";
 import { canAccessSite } from "@/lib/permissions";
@@ -28,7 +27,7 @@ export default async function SiteSensorsPage({
 
   const rows = await buildSensorRows([site]);
   const focused = device
-    ? rows.find((r) => r.sensor.deviceId === device)
+    ? rows.find((r) => r.sensor.deviceId === device) || rows[0]
     : rows[0];
   const isAdmin = user.role === "admin";
   const history = focused
@@ -53,25 +52,23 @@ export default async function SiteSensorsPage({
       ]}
       allowScroll
     >
-      <Suspense fallback={null}>
-        <SiteSensorsBoard
-          siteId={siteId}
-          site={site}
-          rows={rows}
-          initialDeviceId={focused?.sensor.deviceId ?? null}
-          isAdmin={isAdmin}
-          initialHistory={history.map((h) => ({
-            id: h.id,
-            ts: h.ts,
-            x: h.x,
-            y: h.y,
-            z: h.z,
-            batteryPercent: h.batteryPercent,
-            temperatureC: h.temperatureC,
-          }))}
-          initialUnlockEvents={unlockEvents}
-        />
-      </Suspense>
+      <SiteSensorsBoard
+        siteId={siteId}
+        site={site}
+        rows={rows}
+        initialDeviceId={focused?.sensor.deviceId ?? null}
+        isAdmin={isAdmin}
+        initialHistory={history.map((h) => ({
+          id: h.id,
+          ts: h.ts,
+          x: h.x,
+          y: h.y,
+          z: h.z,
+          batteryPercent: h.batteryPercent,
+          temperatureC: h.temperatureC,
+        }))}
+        initialUnlockEvents={unlockEvents}
+      />
     </AppShell>
   );
 }

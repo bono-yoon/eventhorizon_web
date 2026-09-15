@@ -1,6 +1,8 @@
 import mysql from "mysql2/promise";
 import { commandGroup, commandsInGroup } from "./deviceCommands";
+import { optionalNumber, requireEnv } from "./env";
 import type { SensorDevice, SensorReading, Site } from "./types";
+import { defaultTiltThresholdDeg } from "./tilt";
 
 const globalForDb = globalThis as typeof globalThis & {
   eventHorizonDbPool?: mysql.Pool;
@@ -15,15 +17,28 @@ export function dbEnabled() {
 export function getPool() {
   if (!dbEnabled()) return null;
   if (!pool) {
+    if (process.env.DB_PASSWORD === undefined) {
+      throw new Error("환경변수 DB_PASSWORD 이(가) 필요합니다.");
+    }
     pool = mysql.createPool({
-      host: process.env.DB_HOST || "127.0.0.1",
-      port: Number(process.env.DB_PORT || 3306),
-      user: process.env.DB_USER || "dba",
-      password: process.env.DB_PASSWORD || "dbapwd",
-      database: process.env.DB_NAME || "eventhorizon",
+      host: requireEnv("DB_HOST"),
+      port: optionalNumber("DB_PORT", 3306),
+      user: requireEnv("DB_USER"),
+      password: process.env.DB_PASSWORD,
+      database: requireEnv("DB_NAME"),
       waitForConnections: true,
       connectionLimit: 8,
       namedPlaceholders: true,
+      connectTimeout: 10_000,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10_000,
+      ssl:
+        process.env.DB_SSL === "true"
+          ? {
+              rejectUnauthorized:
+                process.env.DB_SSL_REJECT_UNAUTHORIZED !== "false",
+            }
+          : undefined,
     });
     globalForDb.eventHorizonDbPool = pool;
   }
@@ -70,16 +85,19 @@ type DbSensor = {
   is_active: number;
   status: string;
   memo: string | null;
+  tilt_threshold_deg?: number | null;
+  operation_mode?: string | null;
+  realtime_interval_sec?: number | null;
 };
 
-function mapSite(row: DbSite, fallbackCompanyId: string): Site {
+function mapSite(row: DbSite): Site {
   const status =
     row.status === "paused" || row.status === "closed"
       ? row.status
       : "active";
   return {
     id: toWebSiteId(row.id),
-    companyId: row.company_id || fallbackCompanyId,
+    companyId: row.company_id ? String(row.company_id) : "",
     name: row.name,
     code: `DB-${row.id}`,
     address: row.address || "",
@@ -116,9 +134,14 @@ function mapSensorRow(row: DbSensor): SensorDevice {
       : new Date().toISOString(),
     status,
     memo: row.memo,
-    mode: "ALWAYS_ON",
-    modeIntervalSec: 10,
-    thresholdAccel: Number(process.env.THRESHOLD_ACCEL || 2.5),
+    mode: row.operation_mode || "ALWAYS_ON",
+    modeIntervalSec:
+      row.realtime_interval_sec != null && Number(row.realtime_interval_sec) > 0
+        ? Number(row.realtime_interval_sec)
+        : 10,
+    thresholdTiltDeg: defaultTiltThresholdDeg(
+      row.tilt_threshold_deg ?? process.env.THRESHOLD_TILT_DEG
+    ),
     thresholdTempC: Number(process.env.THRESHOLD_TEMP_C || 45),
     thresholdBattery: Number(process.env.THRESHOLD_BATTERY || 15),
   };
@@ -147,30 +170,28 @@ function mapReading(
 }
 
 export async function fetchSitesFromDb(
-  companyId: string
+  companyId?: string
 ): Promise<Site[] | null> {
   const p = getPool();
   if (!p) return null;
   try {
-    const [rows] = await p.query<mysql.RowDataPacket[]>(
-      `SELECT id, company_id, name, address, lat, lon, status, created_at
-       FROM sites
-       WHERE company_id = ? OR company_id IS NULL
-       ORDER BY id`,
-      [companyId]
-    );
-    return (rows as DbSite[]).map((r) => mapSite(r, companyId));
-  } catch {
-    // company_id 컬럼 없을 때 폴백
-    try {
-      const [rows] = await p.query<mysql.RowDataPacket[]>(
-        `SELECT id, name, address, lat, lon, status, created_at FROM sites ORDER BY id`
-      );
-      return (rows as DbSite[]).map((r) => mapSite(r, companyId));
-    } catch (err2) {
-      console.warn("[db] sites read failed:", (err2 as Error).message);
-      return null;
-    }
+    const [rows] = companyId
+      ? await p.query<mysql.RowDataPacket[]>(
+          `SELECT id, company_id, name, address, lat, lon, status, created_at
+           FROM sites
+           WHERE company_id = ?
+           ORDER BY id`,
+          [companyId]
+        )
+      : await p.query<mysql.RowDataPacket[]>(
+          `SELECT id, company_id, name, address, lat, lon, status, created_at
+           FROM sites
+           ORDER BY id`
+        );
+    return (rows as DbSite[]).map(mapSite);
+  } catch (err) {
+    console.warn("[db] sites read failed:", (err as Error).message);
+    return null;
   }
 }
 
@@ -180,10 +201,12 @@ export async function fetchSensorsFromDb(): Promise<SensorDevice[] | null> {
   if (!p) return null;
   try {
     const [rows] = await p.query<mysql.RowDataPacket[]>(
-      `SELECT id, site_id, device_id, label, installed_at, is_active, status, memo
-       FROM sensors
-       WHERE status = 'assigned' AND site_id IS NOT NULL
-       ORDER BY id`
+      `SELECT s.id, s.site_id, s.device_id, s.label, s.installed_at, s.is_active, s.status, s.memo,
+              r.tilt_threshold_deg, r.operation_mode, r.realtime_interval_sec
+       FROM sensors s
+       LEFT JOIN device_runtime r ON r.device_id = s.device_id
+       WHERE s.status = 'assigned' AND s.site_id IS NOT NULL
+       ORDER BY s.id`
     );
     return (rows as DbSensor[]).map(mapSensorRow);
   } catch (err) {
@@ -213,11 +236,13 @@ export async function fetchAllSensorsFromDb(): Promise<SensorDevice[] | null> {
   if (!p) return null;
   try {
     const [rows] = await p.query<mysql.RowDataPacket[]>(
-      `SELECT id, site_id, device_id, label, installed_at, is_active, status, memo
-       FROM sensors
+      `SELECT s.id, s.site_id, s.device_id, s.label, s.installed_at, s.is_active, s.status, s.memo,
+              r.tilt_threshold_deg, r.operation_mode, r.realtime_interval_sec
+       FROM sensors s
+       LEFT JOIN device_runtime r ON r.device_id = s.device_id
        ORDER BY
-         FIELD(status, 'inventory', 'assigned', 'recovered', 'repair', 'disposed'),
-         id DESC`
+         FIELD(s.status, 'inventory', 'assigned', 'recovered', 'repair', 'disposed'),
+         s.id DESC`
     );
     return (rows as DbSensor[]).map(mapSensorRow);
   } catch (err) {
@@ -396,24 +421,27 @@ export async function fetchSensorLogsFromDb(opts: {
 export async function fetchDeviceTrailFromDb(opts: {
   deviceId: string;
   sinceTs: number;
+  untilTs?: number | null;
   limit?: number;
 }): Promise<Array<{ lat: number; lon: number; ts: number }> | null> {
   const p = getPool();
   if (!p) return null;
   try {
     const limit = Math.min(Math.max(Number(opts.limit) || 1500, 2), 5000);
+    const untilTs = opts.untilTs ?? Date.now() + 60_000;
     const [rows] = await p.query<mysql.RowDataPacket[]>(
       `
       SELECT lat, lon, ts
       FROM sensor_logs
       WHERE device_id = ?
         AND ts >= ?
+        AND ts <= ?
         AND lat IS NOT NULL AND lon IS NOT NULL
         AND ABS(lat) > 0.01 AND ABS(lon) > 0.01
       ORDER BY ts DESC
       LIMIT ${limit}
       `,
-      [opts.deviceId, opts.sinceTs]
+      [opts.deviceId, opts.sinceTs, untilTs]
     );
     return (rows as Array<Record<string, unknown>>)
       .map((r) => ({
@@ -544,15 +572,17 @@ export async function insertSiteToDb(site: {
   lon: number;
   status?: string;
   memo?: string;
+  companyId?: string;
 }): Promise<number | null> {
   const p = getPool();
   if (!p) return null;
   const [result] = await p.execute<mysql.ResultSetHeader>(
     `
-    INSERT INTO sites (name, address, lat, lon, memo, status)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO sites (company_id, name, address, lat, lon, memo, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     `,
     [
+      site.companyId || null,
       site.name,
       site.address,
       site.lat,
@@ -562,6 +592,35 @@ export async function insertSiteToDb(site: {
     ]
   );
   return Number(result.insertId);
+}
+
+export async function upsertDeviceRuntimeFields(
+  deviceId: string,
+  patch: {
+    tiltThresholdDeg?: number;
+    operationMode?: string;
+    realtimeIntervalSec?: number;
+  }
+) {
+  const p = getPool();
+  if (!p) throw new Error("DB unavailable");
+  await p.execute(
+    `
+    INSERT INTO device_runtime
+      (device_id, tilt_threshold_deg, operation_mode, realtime_interval_sec)
+    VALUES (?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      tilt_threshold_deg = COALESCE(VALUES(tilt_threshold_deg), tilt_threshold_deg),
+      operation_mode = COALESCE(VALUES(operation_mode), operation_mode),
+      realtime_interval_sec = COALESCE(VALUES(realtime_interval_sec), realtime_interval_sec)
+    `,
+    [
+      deviceId,
+      patch.tiltThresholdDeg ?? null,
+      patch.operationMode ?? null,
+      patch.realtimeIntervalSec ?? null,
+    ]
+  );
 }
 
 export async function updateSiteInDb(

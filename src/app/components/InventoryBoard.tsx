@@ -11,19 +11,23 @@ import {
 } from "@/lib/types";
 
 type SiteOpt = { id: string; name: string; companyId: string };
+type CompanyOpt = { id: string; name: string };
 
 type Draft = {
   label: string;
   status: SensorStatus;
+  companyId: string;
   siteId: string;
   memo: string;
   isActive: boolean;
 };
 
-function toDraft(s: SensorDevice): Draft {
+function toDraft(s: SensorDevice, sites: SiteOpt[]): Draft {
+  const site = sites.find((x) => x.id === (s.siteId || ""));
   return {
     label: s.label,
     status: s.status || "inventory",
+    companyId: site?.companyId || "",
     siteId: s.siteId || "",
     memo: s.memo || "",
     isActive: s.isActive,
@@ -33,14 +37,16 @@ function toDraft(s: SensorDevice): Draft {
 export function InventoryBoard({
   initialSensors,
   sites,
+  companies,
 }: {
   initialSensors: SensorDevice[];
   sites: SiteOpt[];
+  companies: CompanyOpt[];
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState<"all" | SensorStatus>("all");
   const [drafts, setDrafts] = useState<Record<string, Draft>>(() =>
-    Object.fromEntries(initialSensors.map((s) => [s.id, toDraft(s)]))
+    Object.fromEntries(initialSensors.map((s) => [s.id, toDraft(s, sites)]))
   );
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
@@ -65,16 +71,16 @@ export function InventoryBoard({
       ...prev,
       [id]: {
         ...(prev[id] ||
-          toDraft(initialSensors.find((s) => s.id === id)!)),
+          toDraft(initialSensors.find((s) => s.id === id)!, sites)),
         ...patch,
       },
     }));
   }
 
   async function save(sensor: SensorDevice) {
-    const d = drafts[sensor.id] || toDraft(sensor);
-    if (d.status === "assigned" && !d.siteId) {
-      setMsg("현장 배정 시 현장을 선택하세요.");
+    const d = drafts[sensor.id] || toDraft(sensor, sites);
+    if (d.status === "assigned" && (!d.companyId || !d.siteId)) {
+      setMsg("현장 배정 시 건설사와 현장을 선택하세요.");
       return;
     }
     setBusy(sensor.id);
@@ -129,6 +135,7 @@ export function InventoryBoard({
                 <th className="py-2 pr-3">디바이스</th>
                 <th className="py-2 pr-3">라벨</th>
                 <th className="py-2 pr-3">상태</th>
+                <th className="py-2 pr-3">건설사</th>
                 <th className="py-2 pr-3">현장</th>
                 <th className="py-2 pr-3">비고</th>
                 <th className="py-2 pr-3">활성</th>
@@ -137,7 +144,7 @@ export function InventoryBoard({
             </thead>
             <tbody>
               {sensors.map((s) => {
-                const d = drafts[s.id] || toDraft(s);
+                const d = drafts[s.id] || toDraft(s, sites);
                 return (
                   <tr
                     key={s.id}
@@ -169,7 +176,7 @@ export function InventoryBoard({
                             siteId:
                               status === "assigned"
                                 ? d.siteId || s.siteId || ""
-                                : "",
+                                : d.siteId,
                           });
                         }}
                       >
@@ -182,18 +189,38 @@ export function InventoryBoard({
                     </td>
                     <td className="py-3 pr-3">
                       <Select
+                        value={d.companyId}
+                        onChange={(e) =>
+                          setDraft(s.id, {
+                            companyId: e.target.value,
+                            siteId: "",
+                          })
+                        }
+                      >
+                        <option value="">건설사 선택</option>
+                        {companies.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </td>
+                    <td className="py-3 pr-3">
+                      <Select
                         value={d.siteId}
-                        disabled={d.status !== "assigned"}
+                        disabled={!d.companyId}
                         onChange={(e) =>
                           setDraft(s.id, { siteId: e.target.value })
                         }
                       >
-                        <option value="">미배정</option>
-                        {sites.map((site) => (
-                          <option key={site.id} value={site.id}>
-                            {site.name}
-                          </option>
-                        ))}
+                        <option value="">현장 선택</option>
+                        {sites
+                          .filter((site) => site.companyId === d.companyId)
+                          .map((site) => (
+                            <option key={site.id} value={site.id}>
+                              {site.name}
+                            </option>
+                          ))}
                       </Select>
                     </td>
                     <td className="py-3 pr-3">
@@ -237,7 +264,7 @@ export function InventoryBoard({
               {!sensors.length && (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="py-8 text-center text-[var(--eh-fog)]"
                   >
                     표시할 센서가 없습니다. 폰에 APK를 설치·실행하면 재고에

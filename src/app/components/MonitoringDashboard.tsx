@@ -11,6 +11,7 @@ import {
 } from "@/lib/mapMarkers";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
+import { alertHeadline } from "@/lib/alertHeadline";
 
 export type { DashboardSensorRow };
 export { currentReadingEvent };
@@ -195,7 +196,14 @@ export function MonitoringDashboard({
                     })}
                   </span>
                 </div>
-                <div className="text-sm text-[var(--eh-mist)]">{a.message}</div>
+                <div className="text-sm text-[var(--eh-mist)]">
+                  {alertHeadline({
+                    message: a.message,
+                    type: a.type,
+                    value: a.value,
+                    threshold: a.threshold,
+                  })}
+                </div>
                 <div className="mt-1 text-xs text-[var(--eh-fog)]">
                   {a.deviceId}
                   {a.acknowledged ? " · 확인됨" : ""}

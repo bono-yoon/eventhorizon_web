@@ -4,7 +4,7 @@ import { readStore } from "@/lib/store";
 import {
   accessibleSites,
   canAccessCompany,
-  hasPermission,
+  canManageSites,
 } from "@/lib/permissions";
 import { AppShell } from "@/app/components/AppShell";
 import { CompanySitesBoard } from "@/app/components/CompanySitesBoard";
@@ -20,6 +20,8 @@ export default async function CompanySitesPage({
   const user = await getSession();
   if (!user) redirect("/login");
   if (!canAccessCompany(user, companyId)) redirect("/");
+  // 서비스 본사 현장작업자: 현장 운영(일시중지/종료) 대상 아님
+  if (user.role === "field_worker") redirect("/admin/sensors");
 
   const store = await readStore();
   const company = store.companies.find((c) => c.id === companyId);
@@ -30,10 +32,7 @@ export default async function CompanySitesPage({
     user,
     store.sites.filter((s) => s.companyId === companyId)
   );
-  const canCreate =
-    user.role === "admin" ||
-    user.role === "company" ||
-    hasPermission(user, "manage_sites");
+  const canManage = canManageSites(user);
 
   return (
     <AppShell
@@ -47,7 +46,8 @@ export default async function CompanySitesPage({
     >
       <CompanySitesBoard
         companyId={companyId}
-        canCreate={canCreate}
+        canCreate={canManage}
+        canManageStatus={canManage}
         managers={users
           .filter((u) => u.companyId === companyId)
           .map((u) => ({ id: u.id, name: u.name }))}

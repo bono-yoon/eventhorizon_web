@@ -1,13 +1,12 @@
 import { getSession } from "@/lib/auth";
 import { jsonError, jsonOk, uid } from "@/lib/api";
-import { readStore, updateStore, appendUsageLog } from "@/lib/store";
+import { readStore, appendUsageLog } from "@/lib/store";
 import {
   canAccessCompany,
   hasPermission,
 } from "@/lib/permissions";
 import type { Permission } from "@/lib/types";
 import { ALL_PERMISSIONS } from "@/lib/types";
-import { dbEnabled } from "@/lib/db";
 import {
   findUserById,
   listUsersFromDb,
@@ -22,7 +21,7 @@ export async function GET(req: Request) {
   if (!canAccessCompany(user, companyId)) return jsonError("권한 없음", 403);
 
   const store = await readStore();
-  const allUsers = dbEnabled() ? await listUsersFromDb() : store.users;
+  const allUsers = await listUsersFromDb();
   const users = allUsers
     .filter((u) => u.companyId === companyId && u.role !== "company")
     .map(({ passwordHash: _, ...rest }) => rest);
@@ -56,44 +55,24 @@ export async function POST(req: Request) {
     store.sites.filter((s) => s.companyId === companyId).map((s) => s.id)
   );
 
-  if (dbEnabled()) {
-    for (const id of userIds) {
-      const target = await findUserById(id);
-      if (
-        !target ||
-        target.companyId !== companyId ||
-        target.role === "company" ||
-        target.role === "admin"
-      ) {
-        continue;
-      }
-      const set = new Set(target.permissions);
-      for (const p of add) set.add(p);
-      for (const p of remove) set.delete(p);
-      await updateUserInDb(id, {
-        permissions: [...set],
-        siteIds: siteIds
-          ? siteIds.filter((s) => allowedSites.has(s))
-          : undefined,
-      });
+  for (const id of userIds) {
+    const target = await findUserById(id);
+    if (
+      !target ||
+      target.companyId !== companyId ||
+      target.role === "company" ||
+      target.role === "admin"
+    ) {
+      continue;
     }
-  } else {
-    await updateStore((s) => {
-      for (const id of userIds) {
-        const target = s.users.find(
-          (u) => u.id === id && u.companyId === companyId
-        );
-        if (!target || target.role === "company" || target.role === "admin") {
-          continue;
-        }
-        const set = new Set(target.permissions);
-        for (const p of add) set.add(p);
-        for (const p of remove) set.delete(p);
-        target.permissions = [...set];
-        if (siteIds) {
-          target.siteIds = siteIds.filter((s) => allowedSites.has(s));
-        }
-      }
+    const set = new Set(target.permissions);
+    for (const p of add) set.add(p);
+    for (const p of remove) set.delete(p);
+    await updateUserInDb(id, {
+      permissions: [...set],
+      siteIds: siteIds
+        ? siteIds.filter((s) => allowedSites.has(s))
+        : undefined,
     });
   }
 
@@ -123,26 +102,15 @@ export async function PUT(req: Request) {
     return jsonError("권한 없음", 403);
   }
 
-  if (dbEnabled()) {
-    await updateUserInDb(targetId, {
-      permissions: Array.isArray(body.permissions)
-        ? body.permissions
-        : undefined,
-      siteIds: Array.isArray(body.siteIds) ? body.siteIds : undefined,
-      active: typeof body.active === "boolean" ? body.active : undefined,
-      role:
-        body.role && user.role === "admin" ? body.role : undefined,
-    });
-  } else {
-    await updateStore((s) => {
-      const t = s.users.find((u) => u.id === targetId);
-      if (!t) return;
-      if (Array.isArray(body.permissions)) t.permissions = body.permissions;
-      if (Array.isArray(body.siteIds)) t.siteIds = body.siteIds;
-      if (typeof body.active === "boolean") t.active = body.active;
-      if (body.role && user.role === "admin") t.role = body.role;
-    });
-  }
+  await updateUserInDb(targetId, {
+    permissions: Array.isArray(body.permissions)
+      ? body.permissions
+      : undefined,
+    siteIds: Array.isArray(body.siteIds) ? body.siteIds : undefined,
+    active: typeof body.active === "boolean" ? body.active : undefined,
+    role:
+      body.role && user.role === "admin" ? body.role : undefined,
+  });
 
   return jsonOk({ ok: true });
 }

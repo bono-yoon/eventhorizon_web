@@ -403,13 +403,88 @@ textarea {
   animation: site-pin-wave 1.8s ease-out infinite;
 }
 
+@keyframes eh-login-shimmer {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 200% 50%;
+  }
+}
+
+@keyframes eh-login-orb-a {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(18%, 14%);
+  }
+}
+
+@keyframes eh-login-orb-b {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(-12%, 18%);
+  }
+}
+
+@keyframes eh-login-orb-c {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(16%, -10%);
+  }
+}
+
+.eh-login-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--eh-mist) 82%, transparent),
+    var(--eh-signal),
+    #fff,
+    var(--eh-signal),
+    color-mix(in srgb, var(--eh-mist) 82%, transparent)
+  );
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: eh-login-shimmer 4.2s linear infinite;
+  filter: drop-shadow(0 0 18px color-mix(in srgb, var(--eh-signal) 38%, transparent));
+}
+
+.eh-login-orb {
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.eh-login-orb-a {
+  animation: eh-login-orb-a 22s ease-in-out infinite alternate;
+}
+
+.eh-login-orb-b {
+  animation: eh-login-orb-b 28s ease-in-out infinite alternate;
+}
+
+.eh-login-orb-c {
+  animation: eh-login-orb-c 19s ease-in-out infinite alternate;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-rise,
   .animate-rise-delay,
   .eh-stagger > *,
   .pulse-dot,
   .site-pin-wave,
-  .eh-neu-press {
+  .eh-neu-press,
+  .eh-login-shimmer,
+  .eh-login-orb-a,
+  .eh-login-orb-b,
+  .eh-login-orb-c {
     animation: none;
     transition: none;
   }

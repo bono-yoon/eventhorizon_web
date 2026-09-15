@@ -1,9 +1,10 @@
 import { getSession } from "@/lib/auth";
 import { jsonError, jsonOk } from "@/lib/api";
-import { readStore, updateStore, appendUsageLog } from "@/lib/store";
+import { readStore, appendUsageLog, invalidateStoreCache } from "@/lib/store";
 import { canAccessCompany, hasPermission } from "@/lib/permissions";
 import { uid } from "@/lib/api";
 import type { OrgNode } from "@/lib/types";
+import { replaceOrgNodesInDb } from "@/lib/webStoreDb";
 
 export async function GET(req: Request) {
   const user = await getSession();
@@ -35,23 +36,19 @@ export async function PUT(req: Request) {
   if (!companyId || !Array.isArray(nodes)) return jsonError("잘못된 요청");
   if (!canAccessCompany(user, companyId)) return jsonError("권한 없음", 403);
 
-  await updateStore((store) => {
-    store.orgNodes = [
-      ...store.orgNodes.filter((n) => n.companyId !== companyId),
-      ...nodes.map((n, i) => ({
-        ...n,
-        id: n.id || uid("org"),
-        companyId,
-        order: n.order ?? i,
-      })),
-    ];
-    for (const n of nodes) {
-      if (n.userId) {
-        const u = store.users.find((x) => x.id === n.userId);
-        if (u) u.orgNodeId = n.id;
-      }
-    }
-  });
+  const next = nodes.map((n, i) => ({
+    ...n,
+    id: n.id || uid("org"),
+    companyId,
+    order: n.order ?? i,
+  }));
+
+  try {
+    await replaceOrgNodesInDb(companyId, next);
+    invalidateStoreCache();
+  } catch (err) {
+    return jsonError(`조직도 저장 실패: ${(err as Error).message}`, 500);
+  }
 
   await appendUsageLog({
     actorUserId: user.id,

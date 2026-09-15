@@ -46,11 +46,14 @@ export function CompanySitesBoard({
   initialSites,
   managers,
   canCreate,
+  canManageStatus = false,
 }: {
   companyId: string;
   initialSites: SiteRow[];
   managers: { id: string; name: string }[];
   canCreate: boolean;
+  /** 운영중/일시중지/종료 변경 가능 여부 */
+  canManageStatus?: boolean;
 }) {
   const [sites, setSites] = useState(initialSites);
   const [q, setQ] = useState("");
@@ -275,32 +278,35 @@ export function CompanySitesBoard({
                   <div className="mb-2 text-xs text-[var(--eh-fog)]">
                     운영 상태
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(
-                      [
-                        { value: "active", label: "운영중" },
-                        { value: "paused", label: "일시중지" },
-                        { value: "closed", label: "종료" },
-                      ] as const
-                    ).map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setStatus(selected.id, opt.value)}
-                        className={clsx(
-                          "eh-neu-press rounded-2xl px-2 py-2.5 text-xs transition",
-                          selected.status === opt.value
-                            ? "eh-neu-active text-[var(--eh-signal)]"
-                            : "eh-neu-raised-sm text-[var(--eh-fog)] hover:text-white"
-                        )}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="mt-2 text-[11px] text-[var(--eh-fog)]">
-                    UI 미리보기 · 저장 API는 연결되지 않았습니다.
-                  </p>
+                  {canManageStatus ? (
+                    <div className="grid grid-cols-3 gap-2">
+                      {(
+                        [
+                          { value: "active", label: "운영중" },
+                          { value: "paused", label: "일시중지" },
+                          { value: "closed", label: "종료" },
+                        ] as const
+                      ).map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setStatus(selected.id, opt.value)}
+                          className={clsx(
+                            "eh-neu-press rounded-2xl px-2 py-2.5 text-xs transition",
+                            selected.status === opt.value
+                              ? "eh-neu-active text-[var(--eh-signal)]"
+                              : "eh-neu-raised-sm text-[var(--eh-fog)] hover:text-white"
+                          )}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="eh-neu-inset rounded-2xl px-3.5 py-2.5 text-sm text-white">
+                      {STATUS_LABEL[selected.status]}
+                    </div>
+                  )}
                 </div>
               </div>
             </>

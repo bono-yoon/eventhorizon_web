@@ -6,6 +6,8 @@ import { Route } from "lucide-react";
 import { MapView } from "./MapView";
 import type { MapMarker, MapPath } from "./SiteMap";
 
+export type TrailPointView = { lat: number; lon: number; ts?: number };
+
 export function SensorTrackingMap({
   markers,
   trail,
@@ -15,8 +17,8 @@ export function SensorTrackingMap({
   height = 480,
 }: {
   markers: MapMarker[];
-  /** 선택 센서의 이동 경로 (오래된 → 최신) */
-  trail?: Array<{ lat: number; lon: number }>;
+  /** 선택 센서의 이동 경로 (오래된 → 최신, ts 포함 권장) */
+  trail?: TrailPointView[];
   trailDays?: number;
   focusId?: string;
   focusLabel?: string;
@@ -24,7 +26,6 @@ export function SensorTrackingMap({
 }) {
   const [showTrail, setShowTrail] = useState(true);
 
-  // 같은 좌표만 반복 수신한 장비는 그릴 선이 없으므로 '이동 없음'으로 구분한다.
   const distinctPositions = useMemo(() => {
     if (!trail?.length) return 0;
     return new Set(
@@ -34,7 +35,19 @@ export function SensorTrackingMap({
 
   const hasTrail = Boolean(focusId && trail && distinctPositions >= 2);
   const paths: MapPath[] =
-    hasTrail && showTrail ? [{ id: focusId!, points: trail! }] : [];
+    hasTrail && showTrail
+      ? [
+          {
+            id: focusId!,
+            points: trail!.map((p) => ({
+              lat: p.lat,
+              lon: p.lon,
+              ts: p.ts,
+            })),
+            adaptiveDownsample: true,
+          },
+        ]
+      : [];
 
   return (
     <div className="space-y-3">
@@ -42,13 +55,15 @@ export function SensorTrackingMap({
         <div className="min-w-0 text-sm text-[var(--eh-fog)]">
           {focusId ? (
             <>
-              <span className="text-[var(--eh-mist)]">{focusLabel || focusId}</span>
+              <span className="text-[var(--eh-mist)]">
+                {focusLabel || focusId}
+              </span>
               <span className="ml-1.5">
                 {hasTrail
-                  ? `· 최근 ${trailDays}일 이동 경로 ${trail!.length}개 지점`
+                  ? `· 배정 구간 이동 경로 ${trail!.length}개 로그 (지도 확대 시 5분·축소 시 30분 간격)`
                   : trail?.length
                     ? `· 최근 ${trailDays}일 위치 변화 없음 (현재 위치만 표시)`
-                    : `· 최근 ${trailDays}일 위치 기록 없음`}
+                    : `· 표시할 이동 경로 없음`}
               </span>
             </>
           ) : (
@@ -78,13 +93,6 @@ export function SensorTrackingMap({
         paths={paths}
         focusId={focusId}
       />
-
-      <p className="text-[11px] leading-4 text-[var(--eh-fog)]">
-        넓게 보면 현장 핀, 확대하면 센서 핀으로 바뀝니다.
-        {hasTrail && showTrail
-          ? ` 파란 선은 최근 ${trailDays}일 이동 경로이고, 핀은 마지막으로 수신한 현재 위치 하나만 표시합니다.`
-          : ""}
-      </p>
     </div>
   );
 }

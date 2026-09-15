@@ -1,12 +1,14 @@
 import { getSession } from "@/lib/auth";
 import { jsonError, jsonOk, uid } from "@/lib/api";
-import { readStore, updateStore, appendUsageLog } from "@/lib/store";
+import { readStore, appendUsageLog, invalidateStoreCache } from "@/lib/store";
 import { canAccessSite, hasPermission } from "@/lib/permissions";
 import {
-  dbEnabled,
+  fromSensorWebId,
   fromWebSiteId,
   insertSensorLogToDb,
-  insertSensorMappingToDb,
+  updateSensorInventory,
+  upsertDeviceRuntimeFields,
+  upsertInventorySensor,
 } from "@/lib/db";
 import { getReadingsForDevices, getUnlockEvents, syncIngestIntoStore } from "@/lib/ingest";
 import {
@@ -14,6 +16,7 @@ import {
   raiseAlerts,
   sensorStatus,
 } from "@/lib/sensors";
+import { processThresholdAlerts } from "@/lib/alertEngine";
 
 export async function GET(req: Request) {
   const user = await getSession();
@@ -73,7 +76,7 @@ export async function GET(req: Request) {
   return jsonOk({
     items,
     unlockEvents,
-    source: dbEnabled() ? "ingest-db" : "local-store",
+    source: "ingest-db",
   });
 }
 
@@ -94,51 +97,50 @@ export async function POST(req: Request) {
 
   const deviceId = String(body.deviceId || `EH-${uid("DEV").toUpperCase()}`);
   const label = String(body.label || "신규 센서");
-  let sensorId = uid("sen");
 
   const dbSiteId = fromWebSiteId(siteId);
-  if (dbEnabled() && dbSiteId != null) {
-    try {
-      const mapId = await insertSensorMappingToDb({
-        siteId: dbSiteId,
-        deviceId,
-        label,
-      });
-      if (mapId) sensorId = `sen_db_${mapId}`;
-    } catch (err) {
-      return jsonError(`DB 센서 등록 실패: ${(err as Error).message}`, 500);
-    }
+  if (dbSiteId == null) return jsonError("현장 ID가 올바르지 않습니다.", 400);
+  try {
+    await upsertInventorySensor({
+      deviceId,
+      label,
+      status: "assigned",
+      siteId: dbSiteId,
+      memo: "현장 앱/웹 등록",
+    });
+  } catch (err) {
+    return jsonError(`DB 센서 등록 실패: ${(err as Error).message}`, 500);
   }
 
-  const sensor = {
-    id: sensorId,
-    deviceId,
-    siteId,
-    label,
-    isActive: true,
-    installedAt: new Date().toISOString(),
-    status: "assigned" as const,
-    memo: null,
-    mode: String(body.mode || "ALWAYS_ON"),
-    modeIntervalSec: Number(body.modeIntervalSec ?? 10),
-    thresholdAccel: Number(body.thresholdAccel ?? 2.5),
-    thresholdTempC: Number(body.thresholdTempC ?? 45),
-    thresholdBattery: Number(body.thresholdBattery ?? 15),
-  };
-
-  await updateStore((s) => {
-    s.sensors.push(sensor);
-  });
+  invalidateStoreCache();
   await syncIngestIntoStore(undefined, true);
 
   await appendUsageLog({
     actorUserId: user.id,
     actorName: user.name,
     action: "sensor.create",
-    detail: `${sensor.deviceId} 등록 (${site.name})${dbEnabled() ? " (ingest DB)" : ""}`,
+    detail: `${deviceId} 등록 (${site.name})`,
   });
 
-  return jsonOk({ sensor });
+  return jsonOk({
+    sensor: {
+      id: `sen_${deviceId}`,
+      deviceId,
+      siteId,
+      label,
+      isActive: true,
+      installedAt: new Date().toISOString(),
+      status: "assigned" as const,
+      memo: null,
+      mode: String(body.mode || "ALWAYS_ON"),
+      modeIntervalSec: Number(body.modeIntervalSec ?? 10),
+      thresholdTiltDeg: Number(
+        body.thresholdTiltDeg ?? body.thresholdAccel ?? 5
+      ),
+      thresholdTempC: Number(body.thresholdTempC ?? 45),
+      thresholdBattery: Number(body.thresholdBattery ?? 15),
+    },
+  });
 }
 
 export async function PATCH(req: Request) {
@@ -153,24 +155,25 @@ export async function PATCH(req: Request) {
   const site = store.sites.find((s) => s.id === sensor.siteId);
   if (!site || !canAccessSite(user, site)) return jsonError("권한 없음", 403);
 
-  await updateStore((s) => {
-    const t = s.sensors.find((x) => x.id === id);
-    if (!t) return;
-    for (const key of [
-      "label",
-      "mode",
-      "isActive",
-      "modeIntervalSec",
-      "thresholdAccel",
-      "thresholdTempC",
-      "thresholdBattery",
-    ] as const) {
-      if (body[key] !== undefined) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (t as any)[key] = body[key];
-      }
+  const dbId = fromSensorWebId(id);
+  try {
+    if (body.label != null && dbId != null) {
+      await updateSensorInventory(dbId, {
+        label: String(body.label),
+        isActive: typeof body.isActive === "boolean" ? body.isActive : undefined,
+      });
     }
-  });
+    await upsertDeviceRuntimeFields(sensor.deviceId, {
+      tiltThresholdDeg:
+        body.thresholdTiltDeg != null ? Number(body.thresholdTiltDeg) : undefined,
+      operationMode: body.mode != null ? String(body.mode) : undefined,
+      realtimeIntervalSec:
+        body.modeIntervalSec != null ? Number(body.modeIntervalSec) : undefined,
+    });
+    invalidateStoreCache();
+  } catch (err) {
+    return jsonError(`DB 센서 수정 실패: ${(err as Error).message}`, 500);
+  }
 
   return jsonOk({ ok: true });
 }
@@ -210,19 +213,16 @@ export async function PUT(req: Request) {
     hold: Boolean(body.hold),
   };
 
-  if (dbEnabled()) {
-    try {
-      await insertSensorLogToDb(reading);
-    } catch (err) {
-      return jsonError(`DB 로그 적재 실패: ${(err as Error).message}`, 500);
-    }
-  } else {
-    await updateStore((s) => {
-      s.readings.unshift(reading);
-      s.readings = s.readings.slice(0, 2000);
-    });
+  try {
+    await insertSensorLogToDb(reading);
+  } catch (err) {
+    return jsonError(`DB 로그 적재 실패: ${(err as Error).message}`, 500);
   }
 
+  await processThresholdAlerts(
+    [sensor],
+    new Map([[deviceId, reading]])
+  );
   const hits = evaluateReading(sensor, reading);
   const alerts = await raiseAlerts({
     sensor,
@@ -234,6 +234,6 @@ export async function PUT(req: Request) {
     reading,
     alerts,
     status: sensorStatus(sensor, reading),
-    persistedTo: dbEnabled() ? "ingest-db" : "local-store",
+    persistedTo: "ingest-db",
   });
 }

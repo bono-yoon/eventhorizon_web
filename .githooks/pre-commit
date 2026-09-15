@@ -1,0 +1,3 @@
+#!/bin/sh
+# UTF-8 검사 — 커밋 전 한글 깨짐 방지
+node scripts/check-encoding.mjs

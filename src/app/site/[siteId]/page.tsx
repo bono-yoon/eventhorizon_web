@@ -45,7 +45,7 @@ export default async function SiteDashboardPage({
         .map((s) => ({
           deviceId: s.deviceId,
           label: s.label,
-          thresholdAccel: s.thresholdAccel,
+          thresholdTiltDeg: s.thresholdTiltDeg,
           thresholdTempC: s.thresholdTempC,
           thresholdBattery: s.thresholdBattery,
         }))

@@ -1,0 +1,13 @@
+# 텍스트는 UTF-8 + LF 로 통일 (Windows CP949/CRLF 혼입 방지)
+* text=auto eol=lf
+
+*.{ts,tsx,js,mjs,cjs,json,css,md,yml,yaml} text eol=lf working-tree-encoding=UTF-8
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary

@@ -1,0 +1,12 @@
+node_modules
+.next
+.next-dev
+.git
+.github
+.cursor
+.githooks
+data
+*.log
+.env*
+!.env.example
+README.md

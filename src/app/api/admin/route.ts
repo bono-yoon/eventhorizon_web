@@ -1,15 +1,14 @@
 import { getSession } from "@/lib/auth";
 import { jsonError, jsonOk, uid } from "@/lib/api";
-import { readStore, appendUsageLog } from "@/lib/store";
-import { dbEnabled } from "@/lib/db";
+import { readStore, appendUsageLog, invalidateStoreCache } from "@/lib/store";
 import {
   createUserInDb,
   findUserByEmail,
   listUsersFromDb,
   updateUserInDb,
 } from "@/lib/users";
-import { updateStore } from "@/lib/store";
-import bcrypt from "bcryptjs";
+import { defaultPermissionsForRole } from "@/lib/permissions";
+import { insertCompanyToDb } from "@/lib/webStoreDb";
 import type { GlobalRole, Permission } from "@/lib/types";
 
 export async function GET() {
@@ -18,9 +17,7 @@ export async function GET() {
   if (user.role !== "admin") return jsonError("관리자만 접근 가능", 403);
 
   const store = await readStore();
-  const users = dbEnabled()
-    ? await listUsersFromDb()
-    : store.users;
+  const users = await listUsersFromDb();
 
   return jsonOk({
     users: users.map(({ passwordHash: _, ...rest }) => rest),
@@ -38,54 +35,90 @@ export async function POST(req: Request) {
   if (user.role !== "admin") return jsonError("관리자만 접근 가능", 403);
 
   const body = await req.json();
+  if (body.action === "create_company") {
+    const name = String(body.name || "").trim();
+    const codeRaw = String(body.code || "").trim().toUpperCase();
+    const address = String(body.address || "").trim();
+    const adminName = String(body.adminName || "").trim();
+    const adminEmail = String(body.adminEmail || "").trim().toLowerCase();
+    const adminPassword = String(body.adminPassword || "");
+    if (!name) return jsonError("건설사 이름이 필요합니다.");
+    if (!adminName || !adminEmail || !adminPassword) {
+      return jsonError("건설사 계정(이름/이메일/비밀번호)이 필요합니다.");
+    }
+    const existing = await findUserByEmail(adminEmail);
+    if (existing) return jsonError("이미 존재하는 이메일");
+    const companyId = uid("co");
+    const code = codeRaw || companyId.replace(/^co_/, "C").slice(0, 16).toUpperCase();
+    try {
+      await insertCompanyToDb({ id: companyId, name, code, address });
+      await createUserInDb({
+        id: uid("u"),
+        email: adminEmail,
+        password: adminPassword,
+        name: adminName,
+        role: "company",
+        companyId,
+        siteIds: [],
+        permissions: defaultPermissionsForRole("company"),
+      });
+      invalidateStoreCache();
+    } catch (err) {
+      return jsonError((err as Error).message || "건설사 생성 실패", 500);
+    }
+    await appendUsageLog({
+      actorUserId: user.id,
+      actorName: user.name,
+      action: "company.create",
+      detail: `${name} (${code}) / ${adminEmail}`,
+    });
+    return jsonOk({ company: { id: companyId, name, code }, email: adminEmail });
+  }
+
   const email = String(body.email || "").trim().toLowerCase();
   const name = String(body.name || "").trim();
-  const password = String(body.password || "changeme123");
+  const password = String(body.password || "");
   const role = String(body.role || "employee") as GlobalRole;
   if (!email || !name) return jsonError("email/name 필요");
+  if (!password) return jsonError("비밀번호가 필요합니다.");
 
   const existing = await findUserByEmail(email);
   if (existing) return jsonError("이미 존재하는 이메일");
 
   const id = uid("u");
-  const companyId = body.companyId ? String(body.companyId) : null;
-  const siteIds = Array.isArray(body.siteIds) ? (body.siteIds as string[]) : [];
+  const serviceSide = role === "admin" || role === "field_worker";
+  const companyId = serviceSide
+    ? null
+    : body.companyId
+      ? String(body.companyId)
+      : null;
+  const siteIds = serviceSide
+    ? []
+    : Array.isArray(body.siteIds)
+      ? (body.siteIds as string[])
+      : [];
   const permissions = Array.isArray(body.permissions)
     ? (body.permissions as Permission[])
-    : [];
+    : defaultPermissionsForRole(role);
 
-  if (dbEnabled()) {
-    try {
-      await createUserInDb({
-        id,
-        email,
-        password,
-        name,
-        role,
-        companyId,
-        siteIds,
-        permissions,
-      });
-    } catch (err) {
-      return jsonError((err as Error).message || "생성 실패", 500);
-    }
-  } else {
-    await updateStore((s) => {
-      if (s.users.some((u) => u.email.toLowerCase() === email)) return;
-      s.users.push({
-        id,
-        email,
-        passwordHash: bcrypt.hashSync(password, 8),
-        name,
-        role,
-        companyId,
-        siteIds,
-        permissions,
-        orgNodeId: null,
-        active: true,
-        createdAt: new Date().toISOString(),
-      });
+  if (!serviceSide && !companyId) {
+    return jsonError("건설사 소속 계정은 companyId가 필요합니다.");
+  }
+
+  try {
+    await createUserInDb({
+      id,
+      email,
+      password,
+      name,
+      role,
+      companyId,
+      siteIds,
+      permissions,
     });
+    invalidateStoreCache();
+  } catch (err) {
+    return jsonError((err as Error).message || "생성 실패", 500);
   }
 
   await appendUsageLog({
@@ -117,41 +150,38 @@ export async function PATCH(req: Request) {
   const body = await req.json();
   const id = String(body.id || "");
   if (!id) return jsonError("id 필요");
+  if (id === user.id && body.active === false) {
+    return jsonError("본인 계정은 정지할 수 없습니다.");
+  }
 
-  if (dbEnabled()) {
-    try {
-      await updateUserInDb(id, {
-        name: body.name != null ? String(body.name) : undefined,
-        role: body.role != null ? (body.role as GlobalRole) : undefined,
-        companyId:
-          body.companyId !== undefined
-            ? body.companyId
-              ? String(body.companyId)
-              : null
-            : undefined,
-        siteIds: Array.isArray(body.siteIds) ? body.siteIds : undefined,
-        active: typeof body.active === "boolean" ? body.active : undefined,
-        password: body.password ? String(body.password) : undefined,
-        permissions: Array.isArray(body.permissions)
-          ? body.permissions
+  const nextRole = body.role != null ? (body.role as GlobalRole) : undefined;
+  const serviceSide = nextRole === "admin" || nextRole === "field_worker";
+
+  try {
+    await updateUserInDb(id, {
+      name: body.name != null ? String(body.name) : undefined,
+      role: nextRole,
+      companyId: serviceSide
+        ? null
+        : body.companyId !== undefined
+          ? body.companyId
+            ? String(body.companyId)
+            : null
           : undefined,
-      });
-    } catch (err) {
-      return jsonError((err as Error).message || "수정 실패", 500);
-    }
-  } else {
-    await updateStore((s) => {
-      const t = s.users.find((u) => u.id === id);
-      if (!t) return;
-      if (body.name != null) t.name = String(body.name);
-      if (body.role != null) t.role = body.role;
-      if (body.companyId !== undefined)
-        t.companyId = body.companyId ? String(body.companyId) : null;
-      if (Array.isArray(body.siteIds)) t.siteIds = body.siteIds;
-      if (typeof body.active === "boolean") t.active = body.active;
-      if (body.password)
-        t.passwordHash = bcrypt.hashSync(String(body.password), 8);
+      siteIds: serviceSide
+        ? []
+        : Array.isArray(body.siteIds)
+          ? body.siteIds
+          : undefined,
+      active: typeof body.active === "boolean" ? body.active : undefined,
+      password: body.password ? String(body.password) : undefined,
+      permissions: Array.isArray(body.permissions)
+        ? body.permissions
+        : undefined,
     });
+    invalidateStoreCache();
+  } catch (err) {
+    return jsonError((err as Error).message || "수정 실패", 500);
   }
 
   return jsonOk({ ok: true });

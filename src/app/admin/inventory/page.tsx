@@ -36,11 +36,16 @@ export default async function AdminInventoryPage() {
         </Link>
         <span className="mx-2">·</span>
         폰에 APK를 설치·실행하면 센서가 자동으로 재고(미배정)에 등록됩니다.
-        관리자는 여기서 현장 배정·상태(회수/수리/폐기)·비고만 관리하면 됩니다.
+        관리자는 여기서 건설사·현장을 골라 남는 센서를 배정하거나
+        회수/수리/폐기로 바꿀 수 있습니다.
         배정된 센서만 모니터링에 표시됩니다.
       </p>
       <InventoryBoard
         initialSensors={sensors}
+        companies={store.companies.map((c) => ({
+          id: c.id,
+          name: c.name,
+        }))}
         sites={store.sites.map((s) => ({
           id: s.id,
           name: s.name,

@@ -1,8 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import { Badge, Panel, StatusDot } from "./ui";
 import { MapView } from "./MapView";
@@ -17,6 +16,11 @@ import {
   type DashboardSensorRow,
 } from "@/lib/mapMarkers";
 import type { Site } from "@/lib/types";
+import { SensorMetricPager } from "./SensorMetricPager";
+
+function sensorsPath(siteId: string, deviceId: string) {
+  return `/site/${siteId}/sensors?device=${encodeURIComponent(deviceId)}`;
+}
 
 export function SiteSensorsBoard({
   siteId,
@@ -35,9 +39,6 @@ export function SiteSensorsBoard({
   initialHistory: HistoryPoint[];
   initialUnlockEvents: UnlockMarker[];
 }) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const [pending, startTransition] = useTransition();
   const [deviceId, setDeviceId] = useState(
     initialDeviceId || rows[0]?.sensor.deviceId || ""
   );
@@ -45,12 +46,6 @@ export function SiteSensorsBoard({
   const [unlockEvents, setUnlockEvents] = useState(initialUnlockEvents);
   const [detailLoading, setDetailLoading] = useState(false);
   const skipInitialFetch = useRef(true);
-
-  useEffect(() => {
-    const fromUrl = searchParams.get("device");
-    if (!fromUrl) return;
-    setDeviceId((prev) => (prev === fromUrl ? prev : fromUrl));
-  }, [searchParams]);
 
   const focused = useMemo(
     () =>
@@ -62,15 +57,29 @@ export function SiteSensorsBoard({
     (nextId: string) => {
       if (!nextId || nextId === deviceId) return;
       setDeviceId(nextId);
-      startTransition(() => {
-        router.replace(
-          `/site/${siteId}/sensors?device=${encodeURIComponent(nextId)}`,
-          { scroll: false }
-        );
-      });
+      History.prototype.replaceState.call(
+        window.history,
+        window.history.state,
+        "",
+        sensorsPath(siteId, nextId)
+      );
     },
-    [deviceId, router, siteId]
+    [deviceId, siteId]
   );
+
+  useEffect(() => {
+    const syncFromUrl = () => {
+      const fromUrl = new URLSearchParams(window.location.search).get("device");
+      if (!fromUrl) return;
+      if (!rows.some((r) => r.sensor.deviceId === fromUrl)) return;
+      setDeviceId((prev) => (prev === fromUrl ? prev : fromUrl));
+    };
+    syncFromUrl();
+    window.addEventListener("popstate", syncFromUrl);
+    return () => window.removeEventListener("popstate", syncFromUrl);
+  }, [rows]);
+
+
 
   useEffect(() => {
     if (skipInitialFetch.current) {
@@ -205,14 +214,14 @@ export function SiteSensorsBoard({
         <Panel
           className={clsx(
             "transition-opacity duration-200",
-            (detailLoading || pending) && "opacity-70"
+            detailLoading && "opacity-70"
           )}
         >
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="text-lg text-[var(--eh-mist)]">{focused.sensor.label}</div>
               <div className="text-xs text-[var(--eh-fog)]">
-                설정 · 배터리 · 위치 · 임계값 · 이력
+                {focused.sensor.deviceId}
               </div>
             </div>
             <Badge
@@ -230,45 +239,21 @@ export function SiteSensorsBoard({
             </Badge>
           </div>
 
-          <div className="mb-5 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-            <div className="eh-neu-inset rounded-2xl p-3">
-              <div className="text-xs text-[var(--eh-fog)]">모드 / 간격</div>
-              <div className="mt-1 text-[var(--eh-mist)]">
-                {focused.sensor.mode} / {focused.sensor.modeIntervalSec}s
-              </div>
-            </div>
-            <div className="eh-neu-inset rounded-2xl p-3">
-              <div className="text-xs text-[var(--eh-fog)]">배터리</div>
-              <div className="mt-1 text-[var(--eh-mist)]">
-                {focused.latest?.batteryPercent ?? "-"}%
-              </div>
-            </div>
-            <div className="eh-neu-inset rounded-2xl p-3">
-              <div className="text-xs text-[var(--eh-fog)]">온도</div>
-              <div className="mt-1 text-[var(--eh-mist)]">
-                {focused.latest?.temperatureC != null
-                  ? `${focused.latest.temperatureC.toFixed(1)}°C`
-                  : "-"}
-              </div>
-            </div>
-            <div className="eh-neu-inset rounded-2xl p-3">
-              <div className="text-xs text-[var(--eh-fog)]">좌표</div>
-              <div className="mt-1 text-[var(--eh-mist)]">
-                {focused.latest
-                  ? `${focused.latest.lat.toFixed(5)}, ${focused.latest.lon.toFixed(5)}`
-                  : "-"}
-              </div>
-            </div>
-          </div>
-
-          <div className="mb-3 text-sm text-[var(--eh-fog)]">
-            임계값 — accel {focused.sensor.thresholdAccel}g · temp{" "}
-            {focused.sensor.thresholdTempC}°C · battery{" "}
-            {focused.sensor.thresholdBattery}%
-          </div>
+          <SensorMetricPager
+            key={`metric-${focused.sensor.deviceId}`}
+            className="mb-5"
+            source={{
+              mode: focused.sensor.mode,
+              modeIntervalSec: focused.sensor.modeIntervalSec,
+              thresholdTiltDeg: focused.sensor.thresholdTiltDeg,
+              thresholdTempC: focused.sensor.thresholdTempC,
+              thresholdBattery: focused.sensor.thresholdBattery,
+              latest: focused.latest,
+            }}
+          />
 
           <SensorHistoryView
-            key={focused.sensor.deviceId}
+            key={`history-${focused.sensor.deviceId}`}
             history={history}
             showUnlockMarkers={isAdmin}
             unlockEvents={unlockEvents}

@@ -3,12 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack -p 3000",
-    "build": "next build",
+    "dev": "node scripts/dev-server.mjs",
+    "dev:clean": "node scripts/dev-server.mjs --clean",
+    "dev:webpack": "node scripts/dev-server.mjs --webpack",
+    "clean": "node -e \"const fs=require('fs');for (const d of ['.next','.next-dev']) fs.rmSync(d,{recursive:true,force:true}); console.log('cleaned .next caches');\"",
+    "build": "npm run check:encoding && next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint && node scripts/check-encoding.mjs",
+    "check:encoding": "node scripts/check-encoding.mjs",
     "mqtt:sub": "node scripts/mqtt-subscribe.mjs",
-    "sql": "node scripts/run-sql.mjs"
+    "migrate:store": "node scripts/migrate-store-json.mjs",
+    "seed:demo": "node scripts/seed-demo-sites.mjs",
+    "seed:trail": "node scripts/seed-transit-trail.mjs",
+    "seed:users": "node scripts/seed-web-users.mjs"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",

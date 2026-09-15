@@ -10,7 +10,10 @@ export async function POST(req: NextRequest) {
   if (!email || !password) return jsonError("이메일과 비밀번호를 입력하세요.");
 
   const result = await login(email, password);
-  if ("error" in result) return jsonError(result.error, 401);
+  if ("error" in result) {
+    const status = result.code === "ACCOUNT_SUSPENDED" ? 403 : 401;
+    return jsonError(result.error, status, result.code ? { code: result.code } : undefined);
+  }
 
   return jsonOk({
     user: result.user,

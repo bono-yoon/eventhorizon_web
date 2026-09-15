@@ -14,6 +14,8 @@ import {
 } from "@/lib/mapMarkers";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
+import { alertHeadline } from "@/lib/alertHeadline";
+import { formatTiltDeg, tiltMagnitude } from "@/lib/tilt";
 import {
   SimulateAlertForm,
   type SimulationDevice,
@@ -112,11 +114,6 @@ export function SiteOverview({
           <p className="text-sm text-[var(--eh-fog)]">
             {site.code} · {site.address}
           </p>
-          <p className="mt-1 text-xs text-[var(--eh-fog)]">
-            {canControl
-              ? "센서를 선택하면 오른쪽에서 바로 제어할 수 있습니다."
-              : "센서 상태를 확인하고, 이력·차트는 센서 데이터에서 볼 수 있습니다."}
-          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <Badge tone="ok">정상 {counts.ok}</Badge>
@@ -163,10 +160,10 @@ export function SiteOverview({
                 <tbody>
                   {sensors.map((row) => {
                     const magnitude = row.latest
-                      ? Math.sqrt(
-                          row.latest.x ** 2 +
-                            row.latest.y ** 2 +
-                            row.latest.z ** 2
+                      ? tiltMagnitude(
+                          row.latest.x,
+                          row.latest.y,
+                          row.latest.z
                         )
                       : null;
                     const active =
@@ -203,7 +200,7 @@ export function SiteOverview({
                             : "-"}
                         </td>
                         <td className="py-2.5">
-                          {magnitude != null ? magnitude.toFixed(3) : "-"}
+                          {magnitude != null ? formatTiltDeg(magnitude) : "-"}
                         </td>
                         <td className="py-2.5">
                           {row.latest?.mode || row.sensor.mode}
@@ -308,7 +305,14 @@ export function SiteOverview({
                       })}
                     </span>
                   </div>
-                  <div className="text-sm text-[var(--eh-mist)]">{a.message}</div>
+                  <div className="text-sm text-[var(--eh-mist)]">
+                    {alertHeadline({
+                      message: a.message,
+                      type: a.type,
+                      value: a.value,
+                      threshold: a.threshold,
+                    })}
+                  </div>
                   <div className="mt-1 text-xs text-[var(--eh-fog)]">
                     {a.deviceId}
                     {a.acknowledged ? " · 확인됨" : ""}

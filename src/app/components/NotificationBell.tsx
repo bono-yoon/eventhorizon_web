@@ -6,6 +6,7 @@ import { Bell, CheckCircle2 } from "lucide-react";
 import clsx from "clsx";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
+import { alertHeadline } from "@/lib/alertHeadline";
 
 type IncidentDisposition =
   | "confirmed_real"
@@ -250,12 +251,13 @@ export function NotificationBell() {
                     onClick={() => markRead(a.id)}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <span>{a.message}</span>
-                      {a.phase === 2 && (
-                        <span className="shrink-0 text-[10px] text-[var(--eh-alert)]">
-                          ESC
-                        </span>
-                      )}
+                      <span>
+                        {alertHeadline({
+                          message: a.message,
+                          type: a.type,
+                          phase: a.phase,
+                        })}
+                      </span>
                     </div>
                     <div className="mt-1 text-[10px] text-[var(--eh-fog)]">
                       {formatDistanceToNow(new Date(a.createdAt), {
@@ -315,7 +317,11 @@ export function NotificationBell() {
               이벤트 확인 및 분류
             </div>
             <p className="mb-4 text-xs leading-5 text-[var(--eh-fog)]">
-              {ackTarget.message}
+              {alertHeadline({
+                message: ackTarget.message,
+                type: ackTarget.type,
+                phase: ackTarget.phase,
+              })}
             </p>
             <div className="mb-3 space-y-1">
               {DISPOSITION_OPTIONS.map((opt) => (
@@ -375,7 +381,13 @@ export function NotificationBell() {
             <Bell size={14} />
             임계값 초과
           </div>
-          <div className="text-sm text-white">{toast.message}</div>
+          <div className="text-sm text-white">
+            {alertHeadline({
+              message: toast.message,
+              type: toast.type,
+              phase: toast.phase,
+            })}
+          </div>
           <button
             type="button"
             className="mt-2 text-xs text-[var(--eh-fog)]"

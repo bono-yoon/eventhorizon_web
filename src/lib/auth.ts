@@ -2,6 +2,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { appendUsageLog } from "./store";
 import { syncIngestIntoStore } from "./ingest";
+import { requireEnv } from "./env";
 import {
   findUserByEmail,
   findUserById,
@@ -11,26 +12,29 @@ import {
 import type { SessionUser } from "./types";
 
 const COOKIE = "eh_session";
-const secret = () =>
-  new TextEncoder().encode(
-    process.env.JWT_SECRET || "eventhorizon-dev-secret-change-me"
-  );
+const secret = () => new TextEncoder().encode(requireEnv("JWT_SECRET"));
 
-async function hydrateUser(base: SessionUser): Promise<SessionUser> {
+async function hydrateUser(base: SessionUser): Promise<SessionUser | null> {
   await syncIngestIntoStore();
   const fresh = await findUserById(base.id);
-  if (!fresh || !fresh.active) return base;
+  if (!fresh || !fresh.active) return null;
   return toSessionUser(fresh);
 }
 
 export async function login(
   email: string,
   password: string
-): Promise<{ user: SessionUser } | { error: string }> {
+): Promise<{ user: SessionUser } | { error: string; code?: string }> {
   await syncIngestIntoStore(undefined, true);
   const found = await findUserByEmail(email);
   if (!found || !(await verifyPassword(found, password))) {
     return { error: "이메일 또는 비밀번호가 올바르지 않습니다." };
+  }
+  if (!found.active) {
+    return {
+      error: "정지된 계정입니다. 관리자에게 문의해 주세요.",
+      code: "ACCOUNT_SUSPENDED",
+    };
   }
 
   const user = toSessionUser(found);
@@ -86,6 +90,7 @@ export async function requireSession(): Promise<SessionUser> {
 
 export function homePathFor(user: SessionUser): string {
   if (user.role === "admin") return "/admin";
+  if (user.role === "field_worker") return "/admin/sensors";
   if (user.companyId) return `/company/${user.companyId}`;
   if (user.siteIds[0]) return `/site/${user.siteIds[0]}`;
   return "/login";

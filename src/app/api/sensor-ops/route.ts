@@ -2,19 +2,24 @@ import { getSession } from "@/lib/auth";
 import { jsonError, jsonOk } from "@/lib/api";
 import { canAccessCompany } from "@/lib/permissions";
 import { readStore } from "@/lib/store";
+import { fetchAllSensorsFromDb } from "@/lib/db";
 import {
+  completeReturnToInventory,
   getSensorOpsMap,
   listSensorOps,
   migrateLocalSensorOps,
   setSensorOpsStatus,
 } from "@/lib/sensorOps";
+import {
+  ADMIN_OPS_ACTIONS,
+  USER_OPS_ALL,
+} from "@/lib/sensorOpsConstants";
 import type { SensorOpsStatus } from "@/lib/types";
 
-const OPS_STATUSES = new Set<SensorOpsStatus>([
-  "normal",
-  "repair_request",
-  "return_request",
-  "inspect",
+const USER_OPS = new Set<SensorOpsStatus>(USER_OPS_ALL);
+const ADMIN_OPS = new Set<SensorOpsStatus>([
+  ...USER_OPS_ALL,
+  ...ADMIN_OPS_ACTIONS,
 ]);
 
 export async function GET(req: Request) {
@@ -26,7 +31,10 @@ export async function GET(req: Request) {
 
   if (user.role === "admin") {
     const entries = await listSensorOps(companyId || undefined);
-    return jsonOk({ ops: entries, map: Object.fromEntries(entries.map((e) => [e.deviceId, e.status])) });
+    return jsonOk({
+      ops: entries,
+      map: Object.fromEntries(entries.map((e) => [e.deviceId, e.status])),
+    });
   }
 
   const cid = companyId || user.companyId;
@@ -69,7 +77,7 @@ export async function POST(req: Request) {
         siteName: r.siteName ? String(r.siteName) : null,
         status: String(r.status || "normal") as SensorOpsStatus,
       }))
-      .filter((r: MigrateRow) => r.deviceId && OPS_STATUSES.has(r.status));
+      .filter((r: MigrateRow) => r.deviceId && USER_OPS.has(r.status));
     await migrateLocalSensorOps({
       user,
       companyId,
@@ -80,12 +88,8 @@ export async function POST(req: Request) {
   }
 
   const deviceId = String(body.deviceId || "");
-  const status = String(body.status || "") as SensorOpsStatus;
   const companyId = String(body.companyId || user.companyId || "");
-
-  if (!deviceId || !OPS_STATUSES.has(status)) {
-    return jsonError("deviceId와 status가 필요합니다.");
-  }
+  if (!deviceId) return jsonError("deviceId가 필요합니다.");
   if (!canAccessCompany(user, companyId) && user.role !== "admin") {
     return jsonError("권한이 없습니다.", 403);
   }
@@ -94,17 +98,34 @@ export async function POST(req: Request) {
   const company = store.companies.find((c) => c.id === companyId);
   if (!company) return jsonError("건설사를 찾을 수 없습니다.", 404);
 
-  const sensor = store.sensors.find((s) => s.deviceId === deviceId);
+  const allSensors = (await fetchAllSensorsFromDb()) || store.sensors;
+  const sensor =
+    allSensors.find((s) => s.deviceId === deviceId) ||
+    store.sensors.find((s) => s.deviceId === deviceId);
   const site = sensor?.siteId
     ? store.sites.find((s) => s.id === sensor.siteId)
     : null;
 
-  if (
-    user.role !== "admin" &&
-    site &&
-    site.companyId !== companyId
-  ) {
+  if (user.role !== "admin" && site && site.companyId !== companyId) {
     return jsonError("해당 건설사 센서가 아닙니다.", 403);
+  }
+
+  if (body.action === "complete_return") {
+    if (user.role !== "admin") return jsonError("관리자만 반납 완료할 수 있습니다.", 403);
+    await completeReturnToInventory({
+      user,
+      deviceId,
+      companyId,
+      companyName: company.name,
+      sensorLabel: sensor?.label ?? deviceId,
+    });
+    return jsonOk({ ok: true, inventory: true });
+  }
+
+  const status = String(body.status || "") as SensorOpsStatus;
+  const allowed = user.role === "admin" ? ADMIN_OPS : USER_OPS;
+  if (!allowed.has(status)) {
+    return jsonError("deviceId와 status가 필요합니다.");
   }
 
   await setSensorOpsStatus({

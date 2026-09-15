@@ -48,8 +48,10 @@ export type MapMarker = {
 /** 센서 이동 경로. points 는 오래된 → 최신 순. */
 export type MapPath = {
   id: string;
-  points: Array<{ lat: number; lon: number }>;
+  points: Array<{ lat: number; lon: number; ts?: number }>;
   color?: string;
+  /** 줌에 따라 5분/30분 간격으로 다운샘플 (기본 true) */
+  adaptiveDownsample?: boolean;
 };
 
 const SITE_ZOOM_THRESHOLD = 7;
@@ -391,8 +393,135 @@ function markerKey(markers: MapMarker[]) {
 
 function pathKey(paths: MapPath[]) {
   return paths
-    .map((p) => `${p.id}:${p.points.length}:${p.color || ""}`)
+    .map((p) => {
+      const first = p.points[0];
+      const last = p.points[p.points.length - 1];
+      return `${p.id}:${p.points.length}:${p.color || ""}:${first?.ts || ""}:${last?.ts || ""}:${first?.lat || ""}:${last?.lon || ""}`;
+    })
     .join("|");
+}
+
+/** 줌인(level 작음) → 5분, 줌아웃 → 30분 간격 */
+function trailGapMsForZoom(level: number) {
+  return level <= 6 ? 5 * 60_000 : 30 * 60_000;
+}
+
+function downsamplePathByZoom(
+  points: Array<{ lat: number; lon: number; ts?: number }>,
+  level: number
+): Array<{ lat: number; lon: number; ts?: number }> {
+  if (points.length <= 2) return points;
+  const gap = trailGapMsForZoom(level);
+  const kept = [points[0]];
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = kept[kept.length - 1];
+    const cur = points[i];
+    const prevTs = prev.ts ?? 0;
+    const curTs = cur.ts ?? prevTs;
+    const moved =
+      Math.abs(cur.lat - prev.lat) > 0.00001 ||
+      Math.abs(cur.lon - prev.lon) > 0.00001;
+    if (curTs - prevTs >= gap && moved) kept.push(cur);
+  }
+  kept.push(points[points.length - 1]);
+  return kept;
+}
+
+function formatTrailTime(ts?: number) {
+  if (!ts) return "";
+  try {
+    return new Date(ts).toLocaleString("ko-KR", {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
+
+function createTrailTimeTip(): HTMLDivElement {
+  const tip = document.createElement("div");
+  tip.style.cssText =
+    "pointer-events:none;" +
+    "background:rgba(20,24,32,.96);color:#e8eef5;font-size:11px;" +
+    "line-height:1.3;padding:5px 8px;border-radius:8px;white-space:nowrap;" +
+    "box-shadow:0 2px 8px rgba(0,0,0,.45);";
+  return tip;
+}
+
+function createTrailPointDot(
+  label: string,
+  onShow: () => void,
+  onHide: () => void
+): HTMLDivElement {
+  // 핀과 동일: 래퍼 none / 히트 auto — 카카오 오버레이 이벤트 통과용
+  const wrap = document.createElement("div");
+  wrap.style.cssText =
+    "position:relative;width:28px;height:28px;pointer-events:none;";
+  wrap.setAttribute("aria-label", label);
+
+  const hit = document.createElement("div");
+  hit.dataset.trailHit = "1";
+  hit.title = label; // 네이티브 툴팁 폴백
+  hit.style.cssText =
+    "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;" +
+    "pointer-events:auto;cursor:pointer;";
+
+  const dot = document.createElement("div");
+  dot.dataset.trailDot = "1";
+  dot.style.cssText =
+    "width:10px;height:10px;border-radius:50%;" +
+    "background:var(--eh-signal,#2d6a4f);border:2px solid #fff;" +
+    "box-shadow:0 1px 4px rgba(0,0,0,.35);pointer-events:none;";
+  hit.appendChild(dot);
+  wrap.appendChild(hit);
+
+  hit.addEventListener("mouseover", (e) => {
+    e.stopPropagation();
+    onShow();
+  });
+  hit.addEventListener("mouseout", (e) => {
+    e.stopPropagation();
+    onHide();
+  });
+  hit.addEventListener("click", (e) => {
+    e.stopPropagation();
+    onShow();
+  });
+
+  return wrap;
+}
+
+function nearestTrailIndex(
+  lat: number,
+  lon: number,
+  pts: Array<{ lat: number; lon: number }>
+) {
+  let best = 0;
+  let bestD = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < pts.length; i++) {
+    const dLat = pts[i].lat - lat;
+    const dLon = pts[i].lon - lon;
+    const d = dLat * dLat + dLon * dLon;
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+function trailPointLabel(
+  pts: Array<{ lat: number; lon: number; ts?: number }>,
+  idx: number
+) {
+  const when = formatTrailTime(pts[idx]?.ts);
+  if (!when) return `지점 ${idx + 1}`;
+  const kind =
+    idx === 0 ? "출발" : idx === pts.length - 1 ? "도착" : "경유";
+  return `${kind} ${when}`;
 }
 
 function isPlottable(m: MapMarker) {
@@ -410,7 +539,7 @@ const eventPinStyle: Record<
   MapEventKind,
   { text: string }
 > = {
-  tilt: { text: "센서 값 임계 초과" },
+  tilt: { text: "기울기 임계 초과" },
   battery: { text: "배터리 부족" },
   temp: { text: "온도 임계 초과" },
   other: { text: "임계값 초과" },
@@ -437,7 +566,7 @@ function createEventPin(event: MapEventState, label: string) {
   const level = levelStyle[event.level];
   const wrapper = createPinWrapper(48);
 
-  // 센서 값 경고만 빨간 원형 박동 (아이콘 핀은 배터리·온도와 동일 구조)
+  // 기울기 경고만 빨간 원형 박동 (아이콘 핀은 배터리·온도와 동일 구조)
   if (event.kind === "tilt" && event.level === "critical") {
     const pulse = document.createElement("span");
     pulse.style.cssText =
@@ -467,7 +596,7 @@ function createEventPin(event: MapEventState, label: string) {
     "position:absolute;left:0;top:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;transform:rotate(45deg);pointer-events:none;";
 
   if (event.kind === "tilt") {
-    // 경광등 — 센서 값(기울기) 초과·붕괴 위험
+    // 경광등 — 기울기 초과·붕괴 위험
     glyph.innerHTML = `
       <svg width="12" height="12" viewBox="0 0 24 24" fill="#fff" aria-hidden="true">
         <path d="M8 11V8a4 4 0 0 1 8 0v3H8Z"/>
@@ -687,23 +816,94 @@ export function SiteMap({
     pinLayersRef.current = [];
     map.relayout();
 
-    const trailPoints: Array<{ lat: number; lon: number }> = [];
+    const trailPoints: Array<{ lat: number; lon: number; ts?: number }> = [];
     for (const path of paths) {
-      const valid = path.points.filter((pt) =>
+      const rawValid = path.points.filter((pt) =>
         isPlottable({ id: path.id, lat: pt.lat, lon: pt.lon, label: "" })
       );
+      const valid =
+        path.adaptiveDownsample === false
+          ? rawValid
+          : downsamplePathByZoom(rawValid, zoomLevel);
       if (valid.length < 2) continue;
       trailPoints.push(...valid);
       const polyline = new kakao.maps.Polyline({
         path: valid.map((pt) => new kakao.maps.LatLng(pt.lat, pt.lon)),
         map,
-        strokeWeight: 4,
+        strokeWeight: 5,
         strokeColor: path.color || activeSignalColor,
         strokeOpacity: 0.85,
         strokeStyle: "solid",
         zIndex: 15,
       });
       polylinesRef.current.push(polyline);
+
+      const tipEl = createTrailTimeTip();
+      const tipOverlay = new kakao.maps.CustomOverlay({
+        position: new kakao.maps.LatLng(valid[0].lat, valid[0].lon),
+        content: tipEl,
+        xAnchor: 0.5,
+        yAnchor: 1.35,
+        zIndex: 60,
+        clickable: false,
+      });
+      infoOverlaysRef.current.push(tipOverlay);
+
+      let tipIdx = -1;
+      const showTipAt = (idx: number) => {
+        if (idx < 0 || idx >= valid.length) return;
+        tipIdx = idx;
+        tipEl.textContent = trailPointLabel(valid, idx);
+        tipOverlay.setPosition(
+          new kakao.maps.LatLng(valid[idx].lat, valid[idx].lon)
+        );
+        tipOverlay.setMap(map);
+      };
+      const hideTip = () => {
+        tipIdx = -1;
+        tipOverlay.setMap(null);
+      };
+
+      // 선 위 호버: 가장 가까운 포인트 시각 표시 (도트 히트가 막혀도 동작)
+      kakao.maps.event.addListener(polyline, "mousemove", (...args: unknown[]) => {
+        const e = args[0] as { latLng?: { getLat: () => number; getLng: () => number } };
+        const ll = e?.latLng;
+        if (!ll) return;
+        showTipAt(nearestTrailIndex(ll.getLat(), ll.getLng(), valid));
+      });
+      kakao.maps.event.addListener(polyline, "mouseout", () => {
+        hideTip();
+      });
+
+      // 경로 포인트(시간 확인용). 시작/끝은 조금 더 크게.
+      valid.forEach((pt, idx) => {
+        const isEnd = idx === 0 || idx === valid.length - 1;
+        const label = trailPointLabel(valid, idx);
+        const position = new kakao.maps.LatLng(pt.lat, pt.lon);
+        const wrap = createTrailPointDot(
+          label,
+          () => showTipAt(idx),
+          () => {
+            if (tipIdx === idx) hideTip();
+          }
+        );
+        const visibleDot = wrap.querySelector<HTMLDivElement>("[data-trail-dot]");
+        if (isEnd && visibleDot) {
+          visibleDot.style.width = "12px";
+          visibleDot.style.height = "12px";
+        }
+        const overlay = new kakao.maps.CustomOverlay({
+          position,
+          content: wrap,
+          xAnchor: 0.5,
+          yAnchor: 0.5,
+          zIndex: 40,
+          clickable: true,
+        });
+        overlay.setMap(map);
+        overlaysRef.current.push(overlay);
+        requestAnimationFrame(() => releaseWrapperClicks(wrap));
+      });
     }
 
     const plottable = markers.filter(isPlottable);

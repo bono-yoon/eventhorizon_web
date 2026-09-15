@@ -1,4 +1,9 @@
-export type GlobalRole = "admin" | "company" | "site_manager" | "employee";
+export type GlobalRole =
+  | "admin"
+  | "company"
+  | "site_manager"
+  | "employee"
+  | "field_worker";
 
 /** 직원 세분 권한 */
 export type Permission =
@@ -14,7 +19,8 @@ export type Permission =
   | "control_sensor_run"
   | "control_sensor_config"
   | "control_sensor_threshold"
-  | "control_sensor_origin";
+  | "control_sensor_origin"
+  | "manage_sensor_deployment";
 
 export const ALL_PERMISSIONS: Permission[] = [
   "view_company_dashboard",
@@ -30,6 +36,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   "control_sensor_config",
   "control_sensor_threshold",
   "control_sensor_origin",
+  "manage_sensor_deployment",
 ];
 
 /** 건설사·모니터링용 (원격 제어 제외) */
@@ -43,6 +50,7 @@ export const COMPANY_PERMISSIONS: Permission[] = [
   "manage_permissions",
   "view_logs",
   "receive_alerts",
+  "manage_sensor_deployment",
 ];
 
 export const PERMISSION_LABELS: Record<Permission, string> = {
@@ -59,6 +67,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   control_sensor_config: "모드·주기 설정",
   control_sensor_threshold: "임계각 설정",
   control_sensor_origin: "원점 세팅",
+  manage_sensor_deployment: "설치·해체 처리",
 };
 
 
@@ -121,7 +130,7 @@ export interface SensorDevice {
   /** 설정값 */
   mode: string;
   modeIntervalSec: number;
-  thresholdAccel: number;
+  thresholdTiltDeg: number;
   thresholdTempC: number;
   thresholdBattery: number;
 }
@@ -181,7 +190,7 @@ export interface AlertEvent {
   deviceId: string;
   siteId: string | null;
   companyId: string;
-  type: "accel" | "temp" | "battery" | "hold" | "offline";
+  type: "accel" | "temp" | "battery" | "hold" | "offline" | "sensor_ops" | "blackbox";
   severity: "warning" | "critical";
   message: string;
   value: number;
@@ -189,12 +198,13 @@ export interface AlertEvent {
   acknowledged: boolean;
 }
 
-/** 건설사·현장에서 설정하는 장비 운영 상태 */
+/** 장비 운영 상태. 요청(건설사)과 처리(관리자)를 함께 둔다. */
 export type SensorOpsStatus =
   | "normal"
   | "repair_request"
   | "return_request"
-  | "inspect";
+  | "inspect"
+  | "repair_in_progress";
 
 export interface SensorOpsEntry {
   deviceId: string;
@@ -219,6 +229,42 @@ export interface SensorOpsAlert {
   message: string;
 }
 
+/** 현장 설치/해체에 따른 이동 경로 추적 단계 (레거시 호환) */
+export type SensorDeploymentPhase = "in_transit" | "installed";
+
+export interface SensorDeploymentEntry {
+  deviceId: string;
+  phase: SensorDeploymentPhase;
+  transitSince: string | null;
+  installedAt: string | null;
+  removalCompletedAt: string | null;
+  updatedAt: string;
+  updatedByUserId: string;
+  updatedByName: string;
+}
+
+/** 센서–현장 배정 구간 */
+export type SensorAssignmentPhase =
+  | "shipping"
+  | "installed"
+  | "returning"
+  | "ended";
+
+export interface SensorSiteAssignment {
+  id: string;
+  deviceId: string;
+  siteId: string;
+  phase: SensorAssignmentPhase;
+  startedAt: string;
+  installedAt: string | null;
+  dismantledAt: string | null;
+  endedAt: string | null;
+  createdByUserId: string | null;
+  createdByName: string | null;
+  updatedByUserId: string | null;
+  updatedByName: string | null;
+}
+
 export interface AppStore {
   users: User[];
   companies: Company[];
@@ -231,6 +277,9 @@ export interface AppStore {
   sensorOps?: Record<string, SensorOpsEntry>;
   sensorOpsAlerts?: SensorOpsAlert[];
   sensorOpsAlertReads?: Record<string, string[]>;
+  deviceDeployment?: Record<string, SensorDeploymentEntry>;
+  /** DB 없을 때 배정 이력 fallback */
+  sensorAssignments?: SensorSiteAssignment[];
 }
 
 export interface SessionUser {

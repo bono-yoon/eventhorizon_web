@@ -1,10 +1,10 @@
 import type { AlertEvent, SensorDevice, SensorReading } from "./types";
-import { updateStore } from "./store";
 import {
   batteryLevel,
   sensorValueLevel,
   temperatureLevel,
 } from "./thresholdPolicy";
+import { tiltExceedMessage, tiltMagnitude } from "./tilt";
 
 export type ThresholdHit = {
   type: AlertEvent["type"];
@@ -15,7 +15,7 @@ export type ThresholdHit = {
 };
 
 export function accelMagnitude(r: SensorReading): number {
-  return Math.sqrt(r.x * r.x + r.y * r.y + r.z * r.z);
+  return tiltMagnitude(r.x, r.y, r.z);
 }
 
 export function evaluateReading(
@@ -24,7 +24,7 @@ export function evaluateReading(
 ): ThresholdHit[] {
   const hits: ThresholdHit[] = [];
   const mag = accelMagnitude(reading);
-  const accelState = sensorValueLevel(mag, sensor.thresholdAccel);
+  const accelState = sensorValueLevel(mag, sensor.thresholdTiltDeg);
   const tempState = temperatureLevel(
     reading.temperatureC,
     sensor.thresholdTempC
@@ -38,9 +38,9 @@ export function evaluateReading(
     hits.push({
       type: "accel",
       severity: accelState,
-      message: `가속도 임계값 초과 (${mag.toFixed(2)}g)`,
+      message: tiltExceedMessage(mag),
       value: Number(mag.toFixed(3)),
-      threshold: sensor.thresholdAccel,
+      threshold: sensor.thresholdTiltDeg,
     });
   }
 
@@ -110,27 +110,19 @@ export async function raiseAlerts(params: {
 }) {
   if (!params.hits.length) return [] as AlertEvent[];
 
-  const created: AlertEvent[] = [];
-  await updateStore((store) => {
-    for (const hit of params.hits) {
-      const alert: AlertEvent = {
-        id: `al_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        at: new Date().toISOString(),
-        deviceId: params.sensor.deviceId,
-        siteId: params.sensor.siteId,
-        companyId: params.companyId,
-        type: hit.type,
-        severity: hit.severity,
-        message: hit.message,
-        value: hit.value,
-        threshold: hit.threshold,
-        acknowledged: false,
-      };
-      store.alerts.unshift(alert);
-      created.push(alert);
-    }
-    store.alerts = store.alerts.slice(0, 200);
-  });
+  const created: AlertEvent[] = params.hits.map((hit) => ({
+    id: `al_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    at: new Date().toISOString(),
+    deviceId: params.sensor.deviceId,
+    siteId: params.sensor.siteId,
+    companyId: params.companyId,
+    type: hit.type,
+    severity: hit.severity,
+    message: hit.message,
+    value: hit.value,
+    threshold: hit.threshold,
+    acknowledged: false,
+  }));
 
   for (const alert of created) {
     void publishMqttAlert(alert);

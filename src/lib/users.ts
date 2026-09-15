@@ -1,7 +1,6 @@
 import bcrypt from "bcryptjs";
 import type { GlobalRole, Permission, SessionUser, User } from "./types";
-import { dbEnabled, getPool, toWebSiteId } from "./db";
-import { readStore } from "./store";
+import { getPool, toWebSiteId } from "./db";
 
 type DbUserRow = {
   id: string;
@@ -63,60 +62,45 @@ function mapUser(
 
 export async function findUserByEmail(email: string): Promise<User | null> {
   const normalized = email.trim().toLowerCase();
-  if (dbEnabled()) {
-    const p = getPool();
-    if (!p) return null;
-    try {
-      const [rows] = await p.query(
-        `SELECT id, email, password_hash, name, role, company_id, org_node_id, active, created_at
-         FROM web_users WHERE LOWER(email) = ? LIMIT 1`,
-        [normalized]
-      );
-      const row = (rows as DbUserRow[])[0];
-      if (!row || !row.active) return null;
-      const extras = await loadUserExtras(row.id);
-      return mapUser(row, extras);
-    } catch (err) {
-      console.warn("[users] findByEmail failed:", (err as Error).message);
-      return null;
-    }
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const [rows] = await p.query(
+      `SELECT id, email, password_hash, name, role, company_id, org_node_id, active, created_at
+       FROM web_users WHERE LOWER(email) = ? LIMIT 1`,
+      [normalized]
+    );
+    const row = (rows as DbUserRow[])[0];
+    if (!row) return null;
+    const extras = await loadUserExtras(row.id);
+    return mapUser(row, extras);
+  } catch (err) {
+    console.warn("[users] findByEmail failed:", (err as Error).message);
+    return null;
   }
-
-  const store = await readStore();
-  return (
-    store.users.find(
-      (u) => u.email.toLowerCase() === normalized && u.active
-    ) || null
-  );
 }
 
 export async function findUserById(id: string): Promise<User | null> {
-  if (dbEnabled()) {
-    const p = getPool();
-    if (!p) return null;
-    try {
-      const [rows] = await p.query(
-        `SELECT id, email, password_hash, name, role, company_id, org_node_id, active, created_at
-         FROM web_users WHERE id = ? LIMIT 1`,
-        [id]
-      );
-      const row = (rows as DbUserRow[])[0];
-      if (!row) return null;
-      const extras = await loadUserExtras(row.id);
-      return mapUser(row, extras);
-    } catch (err) {
-      console.warn("[users] findById failed:", (err as Error).message);
-      return null;
-    }
+  const p = getPool();
+  if (!p) return null;
+  try {
+    const [rows] = await p.query(
+      `SELECT id, email, password_hash, name, role, company_id, org_node_id, active, created_at
+       FROM web_users WHERE id = ? LIMIT 1`,
+      [id]
+    );
+    const row = (rows as DbUserRow[])[0];
+    if (!row) return null;
+    const extras = await loadUserExtras(row.id);
+    return mapUser(row, extras);
+  } catch (err) {
+    console.warn("[users] findById failed:", (err as Error).message);
+    return null;
   }
-  const store = await readStore();
-  return store.users.find((u) => u.id === id) || null;
 }
 
 export async function listUsers(): Promise<User[]> {
-  if (dbEnabled()) return listUsersFromDb();
-  const store = await readStore();
-  return store.users;
+  return listUsersFromDb();
 }
 
 export async function listUsersFromDb(): Promise<User[]> {

@@ -1,19 +1,19 @@
 import { getSession } from "@/lib/auth";
-import { jsonError, jsonOk, uid } from "@/lib/api";
-import { readStore, updateStore, appendUsageLog } from "@/lib/store";
+import { jsonError, jsonOk } from "@/lib/api";
+import { readStore, appendUsageLog, invalidateStoreCache } from "@/lib/store";
 import {
   canAccessCompany,
   canAccessSite,
-  hasPermission,
+  canManageSites,
 } from "@/lib/permissions";
 import {
-  dbEnabled,
   fromWebSiteId,
   insertSiteToDb,
   toWebSiteId,
   updateSiteInDb,
 } from "@/lib/db";
 import { syncIngestIntoStore } from "@/lib/ingest";
+import { addUserSiteLink } from "@/lib/webStoreDb";
 
 export async function GET(req: Request) {
   const user = await getSession();
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
   if (
     user.role !== "admin" &&
     user.role !== "company" &&
-    !hasPermission(user, "manage_sites")
+    !canManageSites(user)
   ) {
     return jsonError("현장 개설 권한 없음", 403);
   }
@@ -56,51 +56,57 @@ export async function POST(req: Request) {
   const lon = Number(body.lon ?? 126.978);
   const status = "active" as const;
 
-  let siteId = uid("site");
-  if (dbEnabled()) {
-    try {
-      const dbId = await insertSiteToDb({ name, address, lat, lon, status });
-      if (dbId) siteId = toWebSiteId(dbId);
-    } catch (err) {
-      return jsonError(`DB 현장 생성 실패: ${(err as Error).message}`, 500);
+  let dbId: number | null = null;
+  try {
+    dbId = await insertSiteToDb({
+      name,
+      address,
+      lat,
+      lon,
+      status,
+      companyId,
+    });
+  } catch (err) {
+    return jsonError(`DB 현장 생성 실패: ${(err as Error).message}`, 500);
+  }
+  if (!dbId) return jsonError("DB 현장 생성 실패", 500);
+
+  const siteId = toWebSiteId(dbId);
+  try {
+    if (user.role === "company" || user.role === "site_manager") {
+      await addUserSiteLink(user.id, siteId);
     }
+    if (body.managerUserId) {
+      await addUserSiteLink(String(body.managerUserId), siteId);
+    }
+  } catch (err) {
+    console.warn("[sites] user-site link failed:", (err as Error).message);
   }
 
-  const site = {
-    id: siteId,
-    companyId,
-    name,
-    code: String(body.code || `S-${Date.now().toString(36).toUpperCase()}`),
-    address,
-    lat,
-    lon,
-    status,
-    managerUserId: body.managerUserId ? String(body.managerUserId) : null,
-    createdAt: new Date().toISOString(),
-  };
-
-  await updateStore((store) => {
-    store.sites.push(site);
-    if (user.role === "company") {
-      const u = store.users.find((x) => x.id === user.id);
-      if (u && !u.siteIds.includes(site.id)) u.siteIds.push(site.id);
-    }
-    if (site.managerUserId) {
-      const mgr = store.users.find((x) => x.id === site.managerUserId);
-      if (mgr && !mgr.siteIds.includes(site.id)) mgr.siteIds.push(site.id);
-    }
-  });
-
-  await syncIngestIntoStore(companyId, true);
+  invalidateStoreCache();
+  await syncIngestIntoStore(undefined, true);
 
   await appendUsageLog({
     actorUserId: user.id,
     actorName: user.name,
     action: "site.create",
-    detail: `현장 개설: ${site.name}${dbEnabled() ? " (ingest DB)" : ""}`,
+    detail: `현장 개설: ${name}`,
   });
 
-  return jsonOk({ site });
+  return jsonOk({
+    site: {
+      id: siteId,
+      companyId,
+      name,
+      code: String(body.code || `S-${Date.now().toString(36).toUpperCase()}`),
+      address,
+      lat,
+      lon,
+      status,
+      managerUserId: body.managerUserId ? String(body.managerUserId) : null,
+      createdAt: new Date().toISOString(),
+    },
+  });
 }
 
 export async function PATCH(req: Request) {
@@ -113,7 +119,7 @@ export async function PATCH(req: Request) {
   const site = store.sites.find((s) => s.id === siteId);
   if (!site) return jsonError("현장 없음", 404);
   if (!canAccessSite(user, site)) return jsonError("권한 없음", 403);
-  if (user.role === "employee" && !hasPermission(user, "manage_sites")) {
+  if (!canManageSites(user)) {
     return jsonError("현장 관리 권한 없음", 403);
   }
 
@@ -126,27 +132,25 @@ export async function PATCH(req: Request) {
   };
 
   const dbId = fromWebSiteId(siteId);
-  if (dbEnabled() && dbId != null) {
-    try {
-      await updateSiteInDb(dbId, patch);
-    } catch (err) {
-      return jsonError(`DB 현장 수정 실패: ${(err as Error).message}`, 500);
+  if (dbId == null) return jsonError("현장 ID가 올바르지 않습니다.", 400);
+  try {
+    await updateSiteInDb(dbId, patch);
+    if (body.managerUserId) {
+      await addUserSiteLink(String(body.managerUserId), siteId);
     }
+  } catch (err) {
+    return jsonError(`DB 현장 수정 실패: ${(err as Error).message}`, 500);
   }
 
-  await updateStore((s) => {
-    const t = s.sites.find((x) => x.id === siteId);
-    if (!t) return;
-    if (patch.name != null) t.name = patch.name;
-    if (patch.address != null) t.address = patch.address;
-    if (patch.status != null) t.status = patch.status as typeof t.status;
-    if (patch.lat != null) t.lat = patch.lat;
-    if (patch.lon != null) t.lon = patch.lon;
-    if (body.managerUserId !== undefined) {
-      t.managerUserId = body.managerUserId ? String(body.managerUserId) : null;
-    }
-  });
+  const wasClosed = site.status === "closed";
+  if (!wasClosed && patch.status === "closed") {
+    const { endOpenAssignmentsForSite } = await import(
+      "@/lib/sensorAssignment"
+    );
+    await endOpenAssignmentsForSite(siteId, user);
+  }
 
+  invalidateStoreCache();
   await syncIngestIntoStore(undefined, true);
   return jsonOk({ ok: true });
 }

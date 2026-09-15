@@ -6,7 +6,7 @@ export const adminNav: NavItem[] = [
   { href: "/admin", label: "대시보드" },
   { href: "/admin/sensors", label: "센서관리" },
   { href: "/admin/sites", label: "현장관리" },
-  { href: "/admin/org", label: "조직도" },
+  { href: "/admin/users", label: "유저관리" },
 ];
 
 export function companyNav(companyId: string): NavItem[] {
@@ -18,12 +18,18 @@ export function companyNav(companyId: string): NavItem[] {
   ];
 }
 
+/** 서비스 본사 현장작업자: 센서 최초 설치·현장 배송·현장 안내·현장 점검 (건설사 소속 아님) */
+export function fieldWorkerNav(): NavItem[] {
+  return [{ href: "/admin/sensors", label: "센서관리" }];
+}
+
 /** 현장 상세처럼 하위 페이지에서도 상위 4개 메뉴를 유지한다. */
 export function shellNav(
   user: SessionUser,
   companyId?: string | null
 ): NavItem[] {
   if (user.role === "admin") return adminNav;
+  if (user.role === "field_worker") return fieldWorkerNav();
   const id = companyId || user.companyId;
   return id ? companyNav(id) : [];
 }
@@ -49,9 +55,10 @@ export function isNavActive(pathname: string, item: NavItem): boolean {
     case "조직도":
       return (
         pathname.includes("/org") ||
-        pathname.includes("/permissions") ||
-        pathname.startsWith("/admin/users")
+        pathname.includes("/permissions")
       );
+    case "유저관리":
+      return pathname.startsWith("/admin/users");
     default:
       return pathname.startsWith(item.href + "/");
   }

@@ -18,6 +18,7 @@ import { ko } from "date-fns/locale";
 import { Button } from "./ui";
 import { Collapsible } from "./Collapsible";
 import { List, LineChart as LineChartIcon } from "lucide-react";
+import { formatTiltDeg, tiltMagnitude, TILT_UI } from "@/lib/tilt";
 
 export type HistoryPoint = {
   id: string;
@@ -59,9 +60,7 @@ export function SensorHistoryView({
         x: Number(h.x.toFixed(3)),
         y: Number(h.y.toFixed(3)),
         z: Number(h.z.toFixed(3)),
-        mag: Number(
-          Math.sqrt(h.x * h.x + h.y * h.y + h.z * h.z).toFixed(3)
-        ),
+        mag: Number(tiltMagnitude(h.x, h.y, h.z).toFixed(3)),
         battery: h.batteryPercent >= 0 ? h.batteryPercent : null,
         temp: h.temperatureC != null ? Number(h.temperatureC.toFixed(2)) : null,
       }));
@@ -129,9 +128,10 @@ export function SensorHistoryView({
             <thead className="text-xs text-[var(--eh-fog)]">
               <tr className="border-b border-[var(--eh-line)]">
                 <th className="py-2">수신</th>
-                <th className="py-2">X</th>
-                <th className="py-2">Y</th>
-                <th className="py-2">Z</th>
+                <th className="py-2">X (°)</th>
+                <th className="py-2">Y (°)</th>
+                <th className="py-2">Z (°)</th>
+                <th className="py-2">합성</th>
                 <th className="py-2">배터리</th>
                 <th className="py-2">온도</th>
               </tr>
@@ -145,9 +145,12 @@ export function SensorHistoryView({
                       locale: ko,
                     })}
                   </td>
-                  <td className="py-2">{h.x.toFixed(3)}</td>
-                  <td className="py-2">{h.y.toFixed(3)}</td>
-                  <td className="py-2">{h.z.toFixed(3)}</td>
+                  <td className="py-2">{formatTiltDeg(h.x)}</td>
+                  <td className="py-2">{formatTiltDeg(h.y)}</td>
+                  <td className="py-2">{formatTiltDeg(h.z)}</td>
+                  <td className="py-2">
+                    {formatTiltDeg(tiltMagnitude(h.x, h.y, h.z))}
+                  </td>
                   <td className="py-2">{h.batteryPercent}%</td>
                   <td className="py-2">
                     {h.temperatureC != null
@@ -159,7 +162,7 @@ export function SensorHistoryView({
               {!history.length && (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="py-8 text-center text-[var(--eh-fog)]"
                   >
                     이력이 없습니다.
@@ -182,7 +185,7 @@ export function SensorHistoryView({
             </div>
           )}
 
-          <ChartBlock title="가속도 (X / Y / Z / 크기)">
+          <ChartBlock title={TILT_UI.chartTitle}>
             <ResponsiveContainer width="100%" height={320}>
               <LineChart
                 data={chartData}
@@ -260,7 +263,7 @@ export function SensorHistoryView({
                 <Line
                   type="monotone"
                   dataKey="mag"
-                  name="|a|"
+                  name={TILT_UI.magName}
                   stroke="#f87171"
                   dot={false}
                   strokeWidth={2}

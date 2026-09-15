@@ -1,7 +1,7 @@
 import { redirect, notFound } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { readStore } from "@/lib/store";
-import { canAccessSite, hasPermission } from "@/lib/permissions";
+import { canAccessSite, canManageSites } from "@/lib/permissions";
 import { AppShell } from "@/app/components/AppShell";
 import { Panel } from "@/app/components/ui";
 import { shellNav } from "@/lib/nav";
@@ -22,13 +22,10 @@ export default async function SiteManagePage({
   if (!site) notFound();
   if (!canAccessSite(user, site)) redirect(`/company/${site.companyId}/sites`);
 
-  const canManage =
-    user.role === "admin" ||
-    user.role === "company" ||
-    user.role === "site_manager" ||
-    hasPermission(user, "manage_sites");
-
-  if (!canManage) redirect(`/site/${siteId}`);
+  if (!canManageSites(user)) {
+    if (user.role === "field_worker") redirect("/admin/sensors");
+    redirect(`/site/${siteId}`);
+  }
 
   return (
     <AppShell

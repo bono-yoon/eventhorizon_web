@@ -70,7 +70,7 @@ export default async function AdminPage() {
             devices={store.sensors.map((s) => ({
               deviceId: s.deviceId,
               label: s.label,
-              thresholdAccel: s.thresholdAccel,
+              thresholdTiltDeg: s.thresholdTiltDeg,
               thresholdTempC: s.thresholdTempC,
               thresholdBattery: s.thresholdBattery,
             }))}
@@ -91,7 +91,7 @@ export default async function AdminPage() {
                         : (currentReadingEvent(r) ?? alertKinds[r.sensor.deviceId]);
                       const eventText =
                         event?.kind === "tilt"
-                          ? "센서 값 임계 초과"
+                          ? "기울기 임계 초과"
                           : event?.kind === "battery"
                             ? "배터리 부족"
                             : event?.kind === "temp"

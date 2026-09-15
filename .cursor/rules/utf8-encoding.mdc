@@ -1,0 +1,40 @@
+---
+description: UTF-8 인코딩 및 한글 UI 문자열 보호 (Windows CP949 깨짐 방지)
+globs: **/*.{ts,tsx,css,md,mjs,cjs}
+alwaysApply: true
+---
+
+# UTF-8 / 한글 소스 보호
+
+이 프로젝트 UI는 한글 문자열이 많다. **UTF-8 깨짐(?? 표시)은 절대 허용하지 않는다.**
+
+## 원인 (Windows)
+
+- PowerShell `Set-Content`, `Out-File`, `>` 리다이렉트는 기본 인코딩이 **CP949(시스템 로캘)** 인 경우가 많다.
+- CP949로 저장된 파일을 UTF-8로 읽으면 한글이 `??` 로 깨진다.
+- 에이전트/스크립트가 한글 TSX를 PowerShell로 쓰면 반복적으로 재발한다.
+
+## 필수 규칙
+
+1. **한글·TSX·CSS 소스 파일 쓰기**
+   - PowerShell 파일 쓰기 금지.
+   - Node: `fs.writeFileSync(path, content, "utf8")` 또는 에디터 `Write`/`StrReplace` 도구만 사용.
+
+2. **대량 복구**
+   - `node scripts/restore-company-sensors-board.cjs` 같은 전용 스크립트 패턴 사용.
+   - 복구 후 반드시 `npm run check:encoding` 실행.
+
+3. **커밋·빌드 전**
+   - `npm run check:encoding` 통과 필수 (lint/build에 포함됨).
+
+4. **한글 UI 문자열**
+   - 가능하면 `src/lib/sensorOpsConstants.ts` 처럼 상수 모듈로 분리해 재사용.
+   - 클라이언트 컴포넌트에서 서버 전용 `store.ts` 등 `fs` 의존 모듈 import 금지.
+
+## 검증
+
+```bash
+npm run check:encoding
+```
+
+실패 시 해당 파일을 UTF-8로 다시 저장한 뒤 커밋하지 말 것.

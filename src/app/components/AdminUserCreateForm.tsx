@@ -15,7 +15,7 @@ export function AdminUserCreateForm({
   const [form, setForm] = useState({
     name: "",
     email: "",
-    password: "changeme123",
+    password: "",
     role: "employee",
     companyId: companies[0]?.id || "",
     siteId: "",
@@ -64,21 +64,33 @@ export function AdminUserCreateForm({
           placeholder="비밀번호"
           value={form.password}
           onChange={(e) => setForm({ ...form, password: e.target.value })}
+          required
         />
         <Select
           value={form.role}
-          onChange={(e) => setForm({ ...form, role: e.target.value })}
+          onChange={(e) => {
+            const role = e.target.value;
+            const serviceSide = role === "admin" || role === "field_worker";
+            setForm({
+              ...form,
+              role,
+              companyId: serviceSide ? "" : form.companyId,
+              siteId: serviceSide ? "" : form.siteId,
+            });
+          }}
         >
           <option value="admin">관리자</option>
           <option value="company">건설사</option>
           <option value="site_manager">현장소장</option>
           <option value="employee">직원</option>
+          <option value="field_worker">본사 현장작업자</option>
         </Select>
         <Select
           value={form.companyId}
           onChange={(e) =>
             setForm({ ...form, companyId: e.target.value, siteId: "" })
           }
+          disabled={form.role === "admin" || form.role === "field_worker"}
         >
           <option value="">건설사 없음</option>
           {companies.map((c) => (

@@ -50,9 +50,43 @@ function uid() {
   return `wa_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
 }
 
-/** 과거에 저장된 내부 카운트 표기(예: "(3회/유예초과)")는 화면에 노출하지 않는다. */
-function displayMessage(message: string) {
-  return message.replace(/\s*\(\d+회\/유예초과\)\s*$/, "").trim();
+import { alertHeadline } from "./alertHeadline";
+
+/** 과거에 저장된 내부 카운트 표기 + 화면용 짧은 제목 (모바일 alertHeadline 과 동일) */
+function displayMessage(row: {
+  message: string;
+  type?: string;
+  phase?: number;
+  value?: number | null;
+  threshold_value?: number | null;
+  thresholdValue?: number | null;
+}) {
+  const cleaned = String(row.message || "")
+    .replace(/\s*\(\d+회\/유예초과\)\s*$/, "")
+    .trim();
+  return alertHeadline({
+    message: cleaned,
+    type: row.type,
+    phase: row.phase,
+    value: row.value,
+    thresholdValue: row.thresholdValue ?? row.threshold_value,
+  });
+}
+
+export async function recordWebAlert(row: {
+  deviceId: string;
+  siteId: number | null;
+  companyId: string | null;
+  type: string;
+  severity: string;
+  message: string;
+  value: number | null;
+  threshold: number | null;
+  phase: number;
+  audience: WebAlertRow["audience"];
+  incidentId: number | null;
+}) {
+  return insertAlert(row);
 }
 
 async function insertAlert(row: {
@@ -564,7 +598,14 @@ export async function listInboxForUser(user: {
       companyId: r.company_id ? String(r.company_id) : null,
       type: String(r.type),
       severity: String(r.severity),
-      message: displayMessage(String(r.message)),
+      message: displayMessage({
+        message: String(r.message),
+        type: String(r.type),
+        phase: Number(r.phase),
+        value: r.value != null ? Number(r.value) : null,
+        threshold_value:
+          r.threshold_value != null ? Number(r.threshold_value) : null,
+      }),
       value: r.value != null ? Number(r.value) : null,
       thresholdValue:
         r.threshold_value != null ? Number(r.threshold_value) : null,
@@ -695,6 +736,14 @@ export async function listIncidentAcknowledgements(incidentId: number) {
     reason: r.reason_text ? String(r.reason_text) : null,
     createdAt: new Date(r.created_at as string | Date).toISOString(),
   }));
+}
+
+export async function acknowledgeWebAlert(alertId: string) {
+  const p = getPool();
+  if (!p) return;
+  await p.execute(`UPDATE web_alerts SET acknowledged = 1 WHERE id = ?`, [
+    alertId,
+  ]);
 }
 
 export async function markAlertRead(userId: string, alertId: string) {

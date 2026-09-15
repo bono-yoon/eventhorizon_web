@@ -5,6 +5,7 @@ import {
   sensorValueLevel,
   temperatureLevel,
 } from "./thresholdPolicy";
+import { tiltMagnitude } from "./tilt";
 
 /** 대시보드·맵 공용 센서 행 (서버/클라이언트 안전) */
 export type DashboardSensorRow = {
@@ -78,12 +79,10 @@ export function currentReadingEvent(
   row: DashboardSensorRow
 ): MapEventState | undefined {
   if (!row.latest) return undefined;
-  const magnitude = Math.sqrt(
-    row.latest.x ** 2 + row.latest.y ** 2 + row.latest.z ** 2
-  );
+  const magnitude = tiltMagnitude(row.latest.x, row.latest.y, row.latest.z);
   const sensorLevel = sensorValueLevel(
     magnitude,
-    row.sensor.thresholdAccel
+    row.sensor.thresholdTiltDeg
   );
   if (sensorLevel !== "normal") {
     return { kind: "tilt", level: sensorLevel };

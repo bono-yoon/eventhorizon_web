@@ -1,7 +1,11 @@
-import { uid } from "./api";
-import { appendUsageLog, readStore, updateStore } from "./store";
+import { appendUsageLog, invalidateStoreCache } from "./store";
+import {
+  fetchSensorOpsFromDb,
+  upsertSensorOpsToDb,
+} from "./webStoreDb";
+import { fromWebSiteId, upsertInventorySensor } from "./db";
+import { markAlertRead, markAllAlertsRead, recordWebAlert } from "./alertEngine";
 import type {
-  SensorOpsAlert,
   SensorOpsEntry,
   SensorOpsStatus,
   SessionUser,
@@ -12,18 +16,8 @@ import {
 } from "./sensorOpsConstants";
 import type { WebAlertRow } from "./alertEngine";
 
-function ensureOpsStore(store: Awaited<ReturnType<typeof readStore>>) {
-  if (!store.sensorOps) store.sensorOps = {};
-  if (!store.sensorOpsAlerts) store.sensorOpsAlerts = [];
-  if (!store.sensorOpsAlertReads) store.sensorOpsAlertReads = {};
-}
-
 export async function listSensorOps(companyId?: string) {
-  const store = await readStore();
-  ensureOpsStore(store);
-  const entries = Object.values(store.sensorOps!);
-  if (!companyId) return entries;
-  return entries.filter((e) => e.companyId === companyId);
+  return fetchSensorOpsFromDb(companyId);
 }
 
 export async function getSensorOpsMap(companyId?: string) {
@@ -41,45 +35,47 @@ export async function setSensorOpsStatus(params: {
   siteName: string | null;
   sensorLabel: string;
 }) {
-  const prev = await readStore();
-  ensureOpsStore(prev);
-  const before = prev.sensorOps![params.deviceId]?.status ?? "normal";
+  const prevList = await fetchSensorOpsFromDb(params.companyId);
+  const before =
+    prevList.find((e) => e.deviceId === params.deviceId)?.status ?? "normal";
 
-  await updateStore((store) => {
-    ensureOpsStore(store);
-    store.sensorOps![params.deviceId] = {
+  const entry: SensorOpsEntry = {
+    deviceId: params.deviceId,
+    status: params.status,
+    companyId: params.companyId,
+    companyName: params.companyName,
+    siteId: params.siteId,
+    siteName: params.siteName,
+    sensorLabel: params.sensorLabel,
+    updatedAt: new Date().toISOString(),
+    updatedByUserId: params.user.id,
+    updatedByName: params.user.name,
+  };
+  await upsertSensorOpsToDb(entry);
+  invalidateStoreCache();
+
+  if (
+    OPS_NOTIFY_STATUSES.includes(params.status) &&
+    before !== params.status
+  ) {
+    const label = OPS_STATUS_LABELS[params.status];
+    const where = [params.companyName, params.siteName, params.sensorLabel]
+      .filter(Boolean)
+      .join(" · ");
+    await recordWebAlert({
       deviceId: params.deviceId,
-      status: params.status,
+      siteId: params.siteId ? fromWebSiteId(params.siteId) : null,
       companyId: params.companyId,
-      companyName: params.companyName,
-      siteId: params.siteId,
-      siteName: params.siteName,
-      sensorLabel: params.sensorLabel,
-      updatedAt: new Date().toISOString(),
-      updatedByUserId: params.user.id,
-      updatedByName: params.user.name,
-    } satisfies SensorOpsEntry;
-
-    if (
-      OPS_NOTIFY_STATUSES.includes(params.status) &&
-      before !== params.status
-    ) {
-      const label = OPS_STATUS_LABELS[params.status];
-      const where = [params.companyName, params.siteName, params.sensorLabel]
-        .filter(Boolean)
-        .join(" · ");
-      const alert: SensorOpsAlert = {
-        id: uid("ops"),
-        at: new Date().toISOString(),
-        deviceId: params.deviceId,
-        companyId: params.companyId,
-        status: params.status,
-        message: `[${label}] ${where} (${params.deviceId})`,
-      };
-      store.sensorOpsAlerts!.unshift(alert);
-      store.sensorOpsAlerts = store.sensorOpsAlerts!.slice(0, 200);
-    }
-  });
+      type: "sensor_ops",
+      severity: params.status === "repair_request" ? "critical" : "warning",
+      message: `[${label}] ${where} (${params.deviceId})`,
+      value: null,
+      threshold: null,
+      phase: 1,
+      audience: "admin",
+      incidentId: null,
+    });
+  }
 
   await appendUsageLog({
     actorUserId: params.user.id,
@@ -96,56 +92,51 @@ export async function setSensorOpsStatus(params: {
   return { ok: true as const };
 }
 
-export async function listSensorOpsInboxForAdmin(
-  userId: string
-): Promise<WebAlertRow[]> {
-  const store = await readStore();
-  ensureOpsStore(store);
-  const readSet = new Set(store.sensorOpsAlertReads![userId] || []);
-
-  return store.sensorOpsAlerts!.map((a) => ({
-    id: a.id,
-    deviceId: a.deviceId,
+export async function completeReturnToInventory(params: {
+  user: SessionUser;
+  deviceId: string;
+  companyId: string;
+  companyName: string;
+  sensorLabel: string;
+}) {
+  await upsertInventorySensor({
+    deviceId: params.deviceId,
+    label: params.sensorLabel,
+    status: "inventory",
     siteId: null,
-    companyId: a.companyId,
-    type: "sensor_ops",
-    severity: a.status === "repair_request" ? "critical" : "warning",
-    message: a.message,
-    value: null,
-    thresholdValue: null,
-    phase: 1,
-    audience: "admin" as const,
-    incidentId: null,
-    acknowledged: false,
-    createdAt: a.at,
-    read: readSet.has(a.id),
-    canAcknowledge: false,
-  }));
+    memo: "return_complete",
+  });
+  return setSensorOpsStatus({
+    user: params.user,
+    deviceId: params.deviceId,
+    status: "normal",
+    companyId: params.companyId,
+    companyName: params.companyName,
+    siteId: null,
+    siteName: null,
+    sensorLabel: params.sensorLabel,
+  });
+}
+
+export async function listSensorOpsInboxForAdmin(
+  _userId: string
+): Promise<WebAlertRow[]> {
+  // web_alerts(type=sensor_ops) 가 인박스에 포함되므로 중복 조회하지 않는다.
+  return [];
 }
 
 export async function markSensorOpsAlertRead(userId: string, alertId: string) {
-  await updateStore((store) => {
-    ensureOpsStore(store);
-    const list = store.sensorOpsAlertReads![userId] || [];
-    if (!list.includes(alertId)) {
-      store.sensorOpsAlertReads![userId] = [...list, alertId];
-    }
-  });
+  await markAlertRead(userId, alertId);
 }
 
 export async function markAllSensorOpsAlertsRead(
   userId: string,
   alertIds: string[]
 ) {
-  await updateStore((store) => {
-    ensureOpsStore(store);
-    const prev = new Set(store.sensorOpsAlertReads![userId] || []);
-    for (const id of alertIds) prev.add(id);
-    store.sensorOpsAlertReads![userId] = [...prev];
-  });
+  await markAllAlertsRead(userId, alertIds);
 }
 
-/** 건설사 localStorage → store 일회 마이그레이션 */
+/** 건설사 localStorage → DB 일회 마이그레이션 */
 export async function migrateLocalSensorOps(params: {
   user: SessionUser;
   companyId: string;
